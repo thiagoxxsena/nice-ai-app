@@ -374,7 +374,7 @@
           lv.prepararAudio();
           S.live = lv; S.ativo = true; estado("conectando");
           api("voz.liveIniciar", { modulo: cfg.modulo, cena: cfg.cena || "" }).then(function (r) {
-            sess = r; maxSeg = r.maxSeg || 600;
+            sess = r; maxSeg = r.maxSeg || 600; lv.marcar("token");
             return lv.conectar({ wsUrl: r.wsUrl, token: r.token, setup: r.setup, textoInicial: "Hi! I am ready." });
           }).then(function () {
             libera(true); $("#orbe-d", el).hidden = true;

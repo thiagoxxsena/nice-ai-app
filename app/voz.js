@@ -14,13 +14,23 @@
     return f;
   }
 
-  /* ---------- Saída de áudio (fila sem buracos) ---------- */
+  /* ---------- Saída de áudio (fila sem buracos) ----------
+     - O contexto de áudio roda em 24 kHz, a mesma taxa do Gemini. Assim o navegador não reamostra cada pedaço
+       (isso criava um chiado agudo acima de 12 kHz, audível em alto-falantes e fones de desktop).
+     - Entrada e saída de cada fala têm uma rampa curta (6 ms) para não estalar.
+     - Um pequeno colchão (60 ms) no início de cada fala evita picotes quando a rede oscila. */
   function Saida() {
-    this.ctx = null; this.fim = 0; this.fontes = []; this.aoParar = null;
+    this.ctx = null; this.ganho = null; this.fim = 0; this.fontes = []; this.aoParar = null;
+    this.ultimoGanho = null; this.ultimoIni = 0; this.silencioAte = 0; this.pararT = 0;
   }
   Saida.prototype.abrir = function () {
     if (!AC) return null;
-    if (!this.ctx || this.ctx.state === "closed") { try { this.ctx = new AC(); } catch (e) { return null; } }
+    if (!this.ctx || this.ctx.state === "closed") {
+      try { this.ctx = new AC({ sampleRate: 24000, latencyHint: "interactive" }); } catch (e) { try { this.ctx = new AC(); } catch (e2) { return null; } }
+      this.ganho = this.ctx.createGain();
+      this.ganho.connect(this.ctx.destination);
+      this.fim = 0; this.fontes = [];
+    }
     if (this.ctx.state === "suspended") { try { this.ctx.resume(); } catch (e) {} }
     return this.ctx;
   };
@@ -31,22 +41,45 @@
     if (!f.length) return 0;
     var buf = ctx.createBuffer(1, f.length, rate || 24000);
     buf.getChannelData(0).set(f);
-    var src = ctx.createBufferSource(), self = this;
-    src.buffer = buf; src.connect(ctx.destination);
-    var ini = Math.max(ctx.currentTime + 0.03, this.fim);
+    var src = ctx.createBufferSource(), g = ctx.createGain(), self = this, agora = ctx.currentTime;
+    var novo = this.fim <= agora + 0.005;          /* fila vazia: começo de fala (ou a rede atrasou) */
+    var ini = novo ? agora + 0.06 : this.fim;
+    src.buffer = buf; src.connect(g); g.connect(this.ganho);
+    if (novo) { g.gain.setValueAtTime(0, ini); g.gain.linearRampToValueAtTime(1, ini + 0.006); }
     src.start(ini);
     this.fim = ini + buf.duration;
+    this.ultimoGanho = g; this.ultimoIni = ini;
     this.fontes.push(src);
     src.onended = function () {
       self.fontes = self.fontes.filter(function (x) { return x !== src; });
-      if (!self.fontes.length && self.aoParar) self.aoParar();
+      if (!self.fontes.length) { self.silencioAte = Date.now() + 350; if (self.aoParar) self.aoParar(); }
     };
     return buf.duration;
   };
+  /* Fim de uma fala: rampa de saída no último pedaço (evita o estalo no corte). */
+  Saida.prototype.fecharFala = function () {
+    var ctx = this.ctx, g = this.ultimoGanho;
+    this.ultimoGanho = null;
+    if (!ctx || !g || this.fim <= ctx.currentTime + 0.012) return;
+    var a = Math.max(this.ultimoIni, this.fim - 0.008);
+    try { g.gain.setValueAtTime(1, a); g.gain.linearRampToValueAtTime(0, this.fim); } catch (e) {}
+  };
   Saida.prototype.tocando = function () { return this.fontes.length > 0; };
+  /* Tocando ou acabou de tocar: o eco da sala ainda pode entrar no microfone. */
+  Saida.prototype.ocupada = function () { return this.fontes.length > 0 || Date.now() < this.silencioAte; };
+  /* Para com uma descida rápida de volume (30 ms), sem corte seco. */
   Saida.prototype.parar = function () {
-    this.fontes.forEach(function (s) { try { s.onended = null; s.stop(); } catch (e) {} });
-    this.fontes = []; this.fim = 0;
+    var ctx = this.ctx, fontes = this.fontes;
+    this.fontes = []; this.fim = 0; this.ultimoGanho = null; this.silencioAte = Date.now() + 250;
+    if (ctx && fontes.length && this.ganho) {
+      var gn = this.ganho.gain, t = ctx.currentTime, self = this;
+      try { gn.cancelScheduledValues(t); gn.setValueAtTime(gn.value, t); gn.linearRampToValueAtTime(0, t + 0.03); } catch (e) {}
+      clearTimeout(this.pararT);
+      this.pararT = setTimeout(function () {
+        fontes.forEach(function (x) { try { x.onended = null; x.stop(); } catch (e) {} });
+        try { var t2 = ctx.currentTime; gn.cancelScheduledValues(t2); gn.setValueAtTime(1, t2); } catch (e) {}
+      }, 45);
+    }
     if (this.aoParar) this.aoParar();
   };
   Saida.prototype.restante = function () { return this.ctx ? Math.max(0, this.fim - this.ctx.currentTime) : 0; };
@@ -54,7 +87,7 @@
   var saidaTts = new Saida();
 
   /* ---------- Microfone em PCM 16 kHz ---------- */
-  var WORKLET = "class P extends AudioWorkletProcessor{process(i){var c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true}}registerProcessor('nice-mic',P);";
+  var WORKLET = "class P extends AudioWorkletProcessor{constructor(){super();this.b=new Float32Array(2048);this.n=0}process(i){var c=i[0]&&i[0][0];if(!c)return true;for(var k=0;k<c.length;k++){this.b[this.n++]=c[k];if(this.n===2048){this.port.postMessage(this.b.slice(0));this.n=0}}return true}}registerProcessor('nice-mic',P);";
 
   function Microfone(aoBloco) { this.aoBloco = aoBloco; this.ctx = null; this.stream = null; this.no = null; this.acum = []; this.tam = 0; this.nivel = 0; }
   Microfone.prototype.abrirContexto = function () { if (!this.ctx && AC) { try { this.ctx = new AC(); } catch (e) {} } if (this.ctx && this.ctx.state === "suspended") this.ctx.resume(); };
@@ -90,7 +123,7 @@
     }
     this.nivel = n ? Math.sqrt(soma / n) : 0;
     this.acum.push(out); this.tam += n;
-    if (this.tam >= 1600) {
+    if (this.tam >= 640) {
       var junto = new Int16Array(this.tam), p = 0;
       this.acum.forEach(function (x) { junto.set(x, p); p += x.length; });
       this.acum = []; this.tam = 0;
@@ -108,14 +141,21 @@
   function Live(o) {
     this.o = o; this.ws = null; this.pronto = false; this.fechado = false; this.mudo = false;
     this.saida = new Saida(); this.mic = null; this.turnos = []; this.atual = { aluno: "", agente: "" }; this.falasAluno = 0;
-    this.inicio = 0; this.ultimoPapel = "";
+    this.inicio = 0; this.ultimoPapel = ""; this.micPronto = null; this.micErro = null;
+    this.m = { t0: performance.now() };
   }
+  /* Marca o tempo (ms desde o toque) de cada etapa. Ajuda a achar onde está a demora. */
+  Live.prototype.marcar = function (k) { if (this.m[k] === undefined) this.m[k] = Math.round(performance.now() - this.m.t0); };
   Live.prototype.estado = function (e) { if (this.o.onEstado) this.o.onEstado(e); };
   /* Precisa ser chamado dentro do clique (iPhone só libera áudio num gesto). */
   Live.prototype.prepararAudio = function () {
+    var self = this;
+    this.m.t0 = performance.now();
     this.saida.abrir();
     this.mic = new Microfone(this.enviarAudio.bind(this));
     this.mic.abrirContexto();
+    /* O microfone abre JUNTO com o pedido ao servidor, não depois (antes somava 1 a 2 s de espera). */
+    this.micPronto = this.mic.iniciar().then(function () { self.marcar("mic"); return true; }, function (e) { self.micErro = e; return false; });
   };
   Live.prototype.conectar = function (cred) {
     var self = this;
@@ -126,17 +166,21 @@
       ws.binaryType = "arraybuffer";
       self.ws = ws;
       var t = setTimeout(function () { if (!self.pronto) { falha(new Error("A conversa ao vivo não respondeu.")); self.fechar(); } }, 12000);
-      ws.onopen = function () { ws.send(JSON.stringify({ setup: cred.setup })); };
+      /* Microfone negado ou ausente: avisa logo, sem esperar a conexão. */
+      self.micPronto.then(function (okMic) { if (!okMic && !self.pronto) { clearTimeout(t); falha(self.micErro || new Error("Microfone indisponível.")); self.fechar(); } });
+      ws.onopen = function () { self.marcar("ws"); ws.send(JSON.stringify({ setup: cred.setup })); };
       ws.onmessage = function (ev) {
         var txt = typeof ev.data === "string" ? ev.data : new TextDecoder().decode(ev.data), m;
         try { m = JSON.parse(txt); } catch (e) { return; }
         if (m.setupComplete && !self.pronto) {
-          self.pronto = true; clearTimeout(t); self.inicio = Date.now();
-          self.mic.iniciar().then(function () {
-            self.estado("ouvindo");
-            if (cred.abrir !== false) self.enviarTexto(cred.textoInicial || "Hi!", true);
+          self.pronto = true; clearTimeout(t); self.inicio = Date.now(); self.marcar("setup");
+          /* A saudação sai na hora; o tutor já começa a responder enquanto o microfone termina de abrir. */
+          if (cred.abrir !== false) self.enviarTexto(cred.textoInicial || "Hi!", true);
+          self.micPronto.then(function (okMic) {
+            if (!okMic) { falha(self.micErro || new Error("Microfone indisponível.")); self.fechar(); return; }
+            if (!self.saida.tocando()) self.estado("ouvindo");
             ok();
-          }, function (e) { falha(e); self.fechar(); });
+          });
           return;
         }
         self.tratar(m);
@@ -164,6 +208,7 @@
     if (sc.modelTurn && sc.modelTurn.parts) sc.modelTurn.parts.forEach(function (p) {
       if (p.inlineData && p.inlineData.data && /audio/.test(p.inlineData.mimeType || "audio")) {
         var mr = /rate=(\d+)/.exec(p.inlineData.mimeType || ""); self.saida.tocarPcm(p.inlineData.data, mr ? +mr[1] : 24000); temSaida = true;
+        if (self.m.audio === undefined) { self.marcar("audio"); try { console.info("[Nice] ao vivo (ms desde o toque):", JSON.stringify(self.m)); } catch (e) {} window.NiceVoz.ultimaMedicao = self.m; }
       }
     });
     if (sc.outputTranscription && sc.outputTranscription.text) { this.atual.agente += sc.outputTranscription.text; temSaida = true; }
@@ -174,6 +219,7 @@
       if (this.atual.agente && this.o.onTexto) this.o.onTexto("agente", this.atual.agente, false);
     }
     if (sc.turnComplete) {
+      this.saida.fecharFala();
       this.fecharAgente();
       var esperar = this.saida.restante();
       setTimeout(function () { if (!self.fechado) self.estado("ouvindo"); if (self.o.onTurno) self.o.onTurno(self.falasAluno); }, esperar * 1000 + 150);
@@ -197,7 +243,7 @@
   Live.prototype.enviarAudio = function (b64, nivel) {
     if (!this.pronto || this.fechado || this.mudo || !this.ws || this.ws.readyState !== 1) return;
     /* Enquanto o tutor fala, só passa voz alta (o aluno interrompendo). Evita eco no alto-falante do celular. */
-    if (this.saida.tocando() && nivel < 0.06) return;
+    if (this.saida.ocupada() && nivel < 0.06) return;
     this.ws.send(JSON.stringify({ realtimeInput: { audio: { data: b64, mimeType: "audio/pcm;rate=16000" } } }));
   };
   Live.prototype.enviarTexto = function (texto, oculto) {

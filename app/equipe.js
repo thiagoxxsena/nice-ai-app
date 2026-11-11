@@ -256,20 +256,21 @@
   function testeLiveNavegador(r) {
     return new Promise(function (ok, falha) {
       if (!VZ || !VZ.suportaLive()) { falha(new Error("Este navegador não suporta conversa ao vivo.")); return; }
-      var saida = new VZ.Saida(), ws, fim = false, falou = "", audio = 0;
+      var saida = new VZ.Saida(), ws, fim = false, falou = "", audio = 0, t0 = performance.now(), tp = {};
+      function marca(k) { if (tp[k] === undefined) tp[k] = Math.round(performance.now() - t0); }
       saida.abrir();
       var t = setTimeout(function () { fechar(); falha(new Error("Sem resposta em 15 s. Confira o modelo ao vivo em Modelos e voz.")); }, 15000);
       function fechar() { fim = true; clearTimeout(t); try { ws.close(); } catch (e) {} }
       try { ws = new WebSocket(r.wsUrl + "?access_token=" + encodeURIComponent(r.token)); } catch (e) { falha(e); return; }
       ws.binaryType = "arraybuffer";
-      ws.onopen = function () { ws.send(JSON.stringify({ setup: r.setup })); };
+      ws.onopen = function () { marca("ws"); ws.send(JSON.stringify({ setup: r.setup })); };
       ws.onmessage = function (ev) {
         var m; try { m = JSON.parse(typeof ev.data === "string" ? ev.data : new TextDecoder().decode(ev.data)); } catch (e) { return; }
-        if (m.setupComplete) { ws.send(JSON.stringify({ realtimeInput: { text: "Hi!" } })); return; }
+        if (m.setupComplete) { marca("setup"); ws.send(JSON.stringify({ realtimeInput: { text: "Hi!" } })); return; }
         var sc = m.serverContent; if (!sc) return;
-        if (sc.modelTurn && sc.modelTurn.parts) sc.modelTurn.parts.forEach(function (p) { if (p.inlineData && p.inlineData.data) { audio += saida.tocarPcm(p.inlineData.data, 24000); } });
+        if (sc.modelTurn && sc.modelTurn.parts) sc.modelTurn.parts.forEach(function (p) { if (p.inlineData && p.inlineData.data) { marca("audio"); audio += saida.tocarPcm(p.inlineData.data, 24000); } });
         if (sc.outputTranscription && sc.outputTranscription.text) falou += sc.outputTranscription.text;
-        if (sc.turnComplete) { fechar(); setTimeout(function () { ok({ audio: audio, texto: falou.trim() }); }, 50); }
+        if (sc.turnComplete) { fechar(); setTimeout(function () { ok({ audio: audio, texto: falou.trim(), tempos: tp }); }, 50); }
       };
       ws.onclose = function (ev) { if (!fim) { clearTimeout(t); falha(new Error("Conexão recusada" + (ev.reason ? ": " + ev.reason : " (código " + ev.code + ")."))); } };
     });
@@ -280,7 +281,7 @@
     return api("sup.testar", Object.assign({ tipo: tipo }, extra || {})).then(function (r) {
       if (!r.ok) throw new Error(r.detalhe);
       if (tipo === "tts") tocarAudio(r);
-      if (tipo === "live") return testeLiveNavegador(r).then(function (x) { return { ok: true, detalhe: "Tutor respondeu ao vivo com " + x.audio.toFixed(1) + " s de áudio" + (x.texto ? ': "' + x.texto + '"' : "") + ".", ms: r.ms }; });
+      if (tipo === "live") return testeLiveNavegador(r).then(function (x) { var t = x.tempos || {}; return { ok: true, detalhe: "Tutor respondeu ao vivo com " + x.audio.toFixed(1) + " s de áudio" + (x.texto ? ': "' + x.texto + '"' : "") + ". Tempos neste navegador: conexão " + ((t.ws || 0) / 1000).toFixed(1) + " s, preparo " + (((t.setup || 0) - (t.ws || 0)) / 1000).toFixed(1) + " s, primeira voz " + (((t.audio || 0) - (t.setup || 0)) / 1000).toFixed(1) + " s após o oi.", ms: r.ms }; });
       return r;
     }).then(function (r) {
       linha.className = "teste ok"; linha.querySelector("small").textContent = r.detalhe + (r.ms ? " (" + (r.ms / 1000).toFixed(1) + " s no servidor)" : "");
