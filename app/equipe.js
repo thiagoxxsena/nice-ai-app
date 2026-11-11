@@ -323,7 +323,7 @@
           '<div class="cartao"><div class="linha2"><span class="rot">Chave da API do Gemini</span><span class="tag' + (c.ativa ? "" : " alerta") + '">' + (c.ativa ? "ativa ••••" + esc(c.fim) : "não cadastrada") + "</span></div>" +
           (c.ativa ? "<small>Cadastrada em " + dataBRLocal(c.em) + (c.por ? " por " + esc(c.por) : "") + ".</small>" : "") +
           '<p>Crie a chave no Google AI Studio (aistudio.google.com, menu "Get API key"). Ela fica guardada só no servidor; aqui aparecem apenas os 4 últimos caracteres.</p>' +
-          '<div class="linha2"><input class="campo" id="k" type="password" autocomplete="off" spellcheck="false" placeholder="' + (c.ativa ? "Cole uma nova chave para trocar" : "Cole a chave aqui (começa com AIza)") + '" aria-label="Chave da API do Gemini"><button class="btn mini" id="k-s">Salvar chave</button></div>' +
+          '<div class="linha2"><input class="campo" id="k" type="password" autocomplete="off" spellcheck="false" placeholder="' + (c.ativa ? "Cole uma nova chave para trocar" : "Cole a chave aqui (começa com AQ. ou AIza)") + '" aria-label="Chave da API do Gemini"><button class="btn mini" id="k-s">Salvar chave</button></div>' +
           (c.ativa ? '<button class="link" id="k-r">Remover chave</button>' : "") + "</div>" +
           blocoTestes() +
           '<div class="cartao"><div class="linha2"><span class="rot">Modelos e voz</span><button class="pill" id="m-b">Buscar modelos da chave</button></div><div class="form-g">' +
@@ -339,8 +339,8 @@
         ligarTestes(el);
         if (p.testar) $("#t-all", el).click();
         $("#k-s", el).onclick = function () {
-          var b = this, k = $("#k", el).value.trim();
-          if (!/^[A-Za-z0-9_-]{20,80}$/.test(k)) { toast("A chave parece incompleta. Copie de novo do AI Studio."); return; }
+          var b = this, k = $("#k", el).value.replace(/[\s"']/g, "");
+          if (!/^[A-Za-z0-9_.\-]{30,200}$/.test(k)) { toast("A chave parece incompleta. No AI Studio, use o ícone de copiar da chave."); return; }
           ocupado(b, true);
           api("sup.chave", { chave: k }).then(function () { $("#k", el).value = ""; toast("Chave salva. Rodando os testes…"); go("supIA", { testar: true }); }).catch(function (e) { ocupado(b, false); falhou(e); });
         };
