@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nice AI — o inglês que treina com você todo dia</title>
+<meta name="description" content="Nice AI é o app de inglês da Nice English School: cinco habilidades treinadas por IA, com o professor por perto. Teste grátis.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%23af1615%27/%3E%3Ctext x=%2716%27 y=%2722%27 font-size=%2716%27 font-family=%27sans-serif%27 font-weight=%27800%27 text-anchor=%27middle%27 fill=%27%23fff500%27%3EN%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..900&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared/sites-incriveis.css">
+<link rel="stylesheet" href="shared/telas.css">
+<style>
+  :root {
+    --amarelo: #fff500; --preto: #0d0d0e; --vermelho: #af1615; --vinho: #9e1313; --claro: #f0f3f5; --suave: #5d5759;
+    --f-display: "Archivo", system-ui, sans-serif; --f-texto: "Archivo", system-ui, sans-serif; --f-mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--amarelo); }
+  body { margin: 0; background: var(--amarelo); color: var(--preto); font-family: var(--f-texto); font-size: 18px; line-height: 1.5; font-stretch: 100%; overflow-x: hidden; }
+  h1, h2, h3 { font-family: var(--f-display); font-weight: 900; font-stretch: 70%; text-transform: uppercase; line-height: .92; letter-spacing: -0.01em; margin: 0 0 24px; }
+  h2 { font-size: clamp(44px, 9vw, 140px); }
+  h3 { font-size: clamp(28px, 4vw, 56px); }
+  p { margin: 0 0 16px; max-width: 32em; }
+  .rot { font-family: var(--f-mono); font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; display: block; margin-bottom: 20px; }
+  a { color: inherit; }
+  :focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
+  section { position: relative; }
+  .botao { display: inline-flex; align-items: center; background: var(--preto); color: var(--amarelo); font-family: var(--f-display); font-weight: 900; font-stretch: 80%; text-transform: uppercase; font-size: 22px; padding: 20px 36px; text-decoration: none; transition: transform .2s ease; }
+  .botao:hover { transform: translate(-3px, -3px); box-shadow: 6px 6px 0 var(--vermelho); }
+  .botao.am { background: var(--amarelo); color: var(--preto); }
+
+  .topo { position: fixed; inset: 0 0 auto 0; z-index: 60; display: flex; justify-content: space-between; align-items: center; padding: 14px 5vw; pointer-events: none; }
+  .topo > * { pointer-events: auto; }
+  .marca { font-family: var(--f-display); font-weight: 900; font-stretch: 75%; font-size: 26px; text-decoration: none; background: var(--preto); color: #fff; padding: 6px 16px; }
+  .marca b { color: var(--amarelo); }
+  .versao { text-decoration: none; background: var(--amarelo) !important; color: var(--preto) !important; font-weight: 700; font-family: var(--f-mono); font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; background: var(--preto); color: #d9d2d3; padding: 9px 12px; }
+
+  /* ===== 1 · abertura: palavras gigantes que abrem e revelam o aparelho ===== */
+  .abre .fx-palco { flex-direction: column; }
+  .abre h1 { position: absolute; inset: 0; margin: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: var(--f-display); font-weight: 900; font-stretch: 62%; text-transform: uppercase; line-height: .86; font-size: min(17vw, 18dvh); text-align: center; z-index: 1; letter-spacing: -.01em; }
+  .abre h1 span { display: block; white-space: nowrap; }
+  .abre h1 .o { color: transparent; -webkit-text-stroke: 3px var(--preto); }
+  .abre h1 .r { color: var(--vermelho); }
+  .abre .meio { position: relative; z-index: 2; margin-top: 4vh; }
+  .abre .fone { --w: min(300px, calc((100dvh - 150px) * .4737), 50vw); box-shadow: 0 0 0 1px #34343a inset, 14px 14px 0 var(--preto); }
+  .abre .base { position: absolute; left: 5vw; right: 5vw; bottom: 5vh; z-index: 3; display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; }
+  .abre .base p { margin: 0; font-size: 18px; font-weight: 500; max-width: 24em; background: var(--amarelo); padding: 8px 12px 8px 0; }
+  .abre .base .rot { margin: 0; text-align: right; }
+
+  /* ===== 2 · jornada: filmstrip horizontal ===== */
+  .jorn { color: #f6f2f1; }
+  .jorn .fx-palco { flex-direction: column; align-items: flex-start; justify-content: center; gap: 24px; padding-top: 64px; }
+  .jorn .cab { padding: 0 5vw; }
+  .jorn .cab h2 { margin: 0; font-size: clamp(36px, 5.6vw, 84px); max-width: 16ch; }
+  .jorn .cab .rot { color: var(--amarelo); margin-bottom: 12px; }
+  .jorn [data-fx="trilho"] { width: 100%; align-self: stretch; }
+  .passo { flex: 0 0 min(90vw, 700px); margin-right: 24px; position: relative; display: grid; grid-template-columns: auto 1fr; gap: 32px; align-items: center; padding: 8px 0 8px 8px; }
+  .passo:first-child { margin-left: 5vw; } .passo:last-child { margin-right: 5vw; }
+  .passo .num { position: absolute; left: -.04em; bottom: -.18em; font-family: var(--f-display); font-weight: 900; font-stretch: 62%; font-size: clamp(160px, 24vw, 330px); line-height: .8; color: transparent; -webkit-text-stroke: 2px rgba(255,245,0,.5); z-index: 0; pointer-events: none; }
+  .passo .fone { --w: min(230px, calc((100dvh - 300px) * .4737)); position: relative; z-index: 1; }
+  .passo .tx { position: relative; z-index: 1; padding-right: 8px; }
+  .passo .tx .rot { color: var(--amarelo); }
+  .passo h3 { margin-bottom: 12px; font-size: clamp(30px, 3.6vw, 50px); }
+  .passo p { margin: 0; color: #cfc8c9; font-size: 17px; }
+
+  /* ===== 3 · trilhas: linhas editoriais ===== */
+  .trilhas3 { padding: 120px 5vw; }
+  .trilhas3 h2 { max-width: 14ch; margin-bottom: 56px; }
+  .linhas { list-style: none; margin: 0; padding: 0; }
+  .linhas li { display: grid; grid-template-columns: 90px 1.2fr 1fr; gap: 32px; align-items: center; border-top: 4px solid var(--preto); padding: 32px 0; }
+  .linhas li:last-child { border-bottom: 4px solid var(--preto); }
+  .linhas .no { font-family: var(--f-mono); font-weight: 600; font-size: 20px; }
+  .linhas h3 { margin: 0; font-size: clamp(36px, 6.4vw, 96px); }
+  .linhas p { margin: 0; font-size: 18px; max-width: 26em; }
+  .linhas li.dest { background: var(--vermelho); color: #fff; padding-left: 24px; padding-right: 24px; margin: 0 -24px; }
+  .linhas .tag { display: inline-block; font-family: var(--f-mono); font-size: 12px; font-weight: 600; background: var(--preto); color: var(--amarelo); padding: 5px 10px; margin-top: 12px; text-transform: uppercase; letter-spacing: .06em; }
+
+  /* ===== 4 · cinco habilidades (pico) ===== */
+  .cinco { --bg: #fff500; --ink: #0d0d0e; background: var(--bg); color: var(--ink); transition: background .6s ease, color .6s ease; }
+  .cinco[data-passo="2"] { --bg: #0d0d0e; --ink: #fff500; }
+  .cinco[data-passo="3"] { --bg: #f0f3f5; --ink: #0d0d0e; }
+  .cinco[data-passo="4"] { --bg: #af1615; --ink: #ffffff; }
+  .cinco[data-passo="5"] { --bg: #fff500; --ink: #0d0d0e; }
+  .cinco .fx-palco { display: block; }
+  .palavras { position: absolute; inset: 0; margin: 0; padding: 0 0 0 5vw; list-style: none; display: grid; place-items: center start; z-index: 1; pointer-events: none; }
+  .palavras li { grid-area: 1 / 1; font-family: var(--f-display); font-weight: 900; font-stretch: 62%; text-transform: uppercase; font-size: min(19vw, 290px); line-height: .8; translate: calc((var(--etapa-p, 0.5) - .5) * -7vw) 0; letter-spacing: -.01em; opacity: 0; transform: translateY(12vh) scale(.96); transition: opacity .5s ease, transform .7s cubic-bezier(.2,.8,.2,1); white-space: nowrap; }
+  .palavras li.ativa { opacity: 1; transform: none; }
+  .meio5 { position: absolute; inset: 0; display: grid; place-items: center end; padding-right: 9vw; z-index: 2; }
+  .meio5 .stage { position: relative; }
+  .meio5 .fone { rotate: calc((var(--etapa-p, 0.5) - .5) * 5deg); --w: min(300px, calc((100dvh - 150px) * .4737), 40vw); box-shadow: 0 0 0 1px #34343a inset, 12px 12px 0 var(--ink); transition: box-shadow .6s ease; }
+  .modos { position: absolute; left: 5vw; bottom: 8vh; width: min(340px, 28vw); z-index: 3; display: grid; margin: 0; padding: 0; list-style: none; }
+  .modos > li { grid-area: 1 / 1; opacity: 0; transform: translateY(14px); transition: opacity .4s ease, transform .5s ease; }
+  .modos > li.ativa { opacity: 1; transform: none; }
+  .modos ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+  .modos li li { font-weight: 700; font-size: 18px; line-height: 1.25; padding-left: 22px; position: relative; }
+  .modos li li::before { content: ""; position: absolute; left: 0; top: .45em; width: 10px; height: 10px; background: var(--ink); }
+  .soltos { position: absolute; inset: 0; z-index: 4; margin: 0; padding: 0; list-style: none; pointer-events: none; }
+  .soltos > li { position: absolute; inset: 0; opacity: 0; transition: opacity .4s ease; }
+  .soltos > li.ativa { opacity: 1; }
+  .soltos .s { position: absolute; background: var(--ink); color: var(--bg); font-family: var(--f-mono); font-weight: 600; font-size: 14px; text-transform: uppercase; letter-spacing: .04em; padding: 12px 18px; white-space: nowrap; transition: background .6s ease, color .6s ease; }
+  .s1 { left: -150px; top: 16%; } .s2 { right: -36px; top: 46%; } .s3 { left: -110px; top: 78%; }
+  .cinco .cont { position: absolute; right: 5vw; top: 84px; z-index: 3; font-family: var(--f-mono); font-weight: 600; font-size: 14px; letter-spacing: .08em; text-transform: uppercase; }
+  .cinco .cont b { font-size: 36px; font-family: var(--f-display); font-stretch: 70%; font-weight: 900; }
+  .cinco .tit { position: absolute; left: 5vw; top: 84px; z-index: 3; font-family: var(--f-mono); font-weight: 600; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; max-width: 16em; }
+
+  /* ===== 5 · perfis em atos ===== */
+  .ato { min-height: 100vh; display: flex; align-items: center; padding: 112px 5vw; overflow: clip; }
+  .ato-in { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: 56px; align-items: center; width: 100%; }
+  .ato h2 { font-size: clamp(44px, 6.6vw, 104px); margin-bottom: 24px; }
+  .ato .rot { opacity: .8; }
+  .ato p { font-size: 20px; font-weight: 500; }
+  .ato ul { list-style: none; margin: 24px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  .ato li { font-family: var(--f-mono); font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; padding: 8px 12px; border: 2px solid currentColor; }
+  .ato-j { display: grid; place-items: center; }
+  .ato-j .janela { --w: min(720px, 46vw); box-shadow: 14px 14px 0 currentColor, 0 0 0 1px #34343a inset; }
+
+  /* ===== 6 · fecho ===== */
+  .fecho { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 120px 5vw; color: #f6f2f1; }
+  .fecho h2 { font-size: clamp(64px, 16vw, 260px); color: var(--amarelo); margin-bottom: 40px; }
+  .fecho small { font-family: var(--f-mono); font-size: 13px; margin-top: 24px; color: #a8a1a2; max-width: 36em; }
+  footer { padding: 24px 5vw 40px; font-family: var(--f-mono); font-size: 13px; color: #a8a1a2; background: var(--preto); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 16px; border-top: 1px solid #2c2c30; }
+
+  @media (max-width: 820px) {
+    body { font-size: 17px; }
+
+    .abre h1 { font-size: min(21vw, 14.5dvh); }
+    .abre .meio { margin-top: 10vh; }
+    .abre .fone { --w: min(calc((100dvh - 330px) * .4737), 56vw); box-shadow: 0 0 0 1px #34343a inset, 8px 8px 0 var(--preto); }
+    .abre .base { flex-direction: column; align-items: flex-start; gap: 8px; } .abre .base p { font-size: 15px; } .abre .base .rot { text-align: left; }
+    .passo { grid-template-columns: auto 1fr; gap: 14px; flex-basis: 92vw; }
+    .passo .fone { --w: min(36vw, calc((100dvh - 300px) * .4737)); }
+    .passo h3 { font-size: 26px; margin-bottom: 8px; } .passo p { font-size: 14px; } .passo .num { font-size: 170px; }
+    .trilhas3 { padding: 72px 5vw; } .trilhas3 h2 { margin-bottom: 32px; }
+    .linhas li { grid-template-columns: 1fr; gap: 8px; padding: 20px 0; } .linhas li.dest { margin: 0 -5vw; padding-left: 5vw; padding-right: 5vw; }
+    .linhas .no { font-size: 15px; } .linhas p { font-size: 16px; }
+    .palavras li { font-size: 19vw; transform: translateY(6vh); translate: none; }
+    .palavras { place-items: start center; padding: 118px 0 0; }
+    .meio5 { place-items: center; padding: 70px 0 0; }
+    .meio5 .fone { --w: min(calc((100dvh - 440px) * .4737), 58vw); box-shadow: 0 0 0 1px #34343a inset, 8px 8px 0 var(--ink); }
+    .modos { left: 5vw; right: 5vw; width: auto; bottom: 3vh; } .modos li li { font-size: 14px; } .modos ul { gap: 4px; grid-template-columns: 1fr 1fr; }
+    .soltos { display: none; } .meio5 .fone { rotate: none; }
+    .cinco .cont, .cinco .tit { top: 70px; } .cinco .cont b { font-size: 26px; } .cinco .tit { font-size: 11px; }
+    .ato { min-height: 0; padding: 80px 5vw; } .ato-in { grid-template-columns: 1fr; gap: 32px; }
+    .ato p { font-size: 17px; } .ato-j .janela { --w: 90vw; box-shadow: 8px 8px 0 currentColor, 0 0 0 1px #34343a inset; }
+    .fecho h2 { font-size: 22vw; }
+  }
+  /* movimento reduzido: tudo legível e parado */
+  .fx-reduzido .abre h1 { position: static; padding: 96px 5vw 24px; font-size: clamp(48px, 13vw, 160px); }
+  .fx-reduzido .abre .fx-palco { padding-bottom: 48px; } .fx-reduzido .abre .base { position: static; padding-top: 24px; }
+  .fx-reduzido .jorn .fx-palco { padding: 64px 0; } .fx-reduzido .jorn [data-fx="trilho"] { padding: 0 5vw; gap: 32px; } .fx-reduzido .passo { margin: 0 !important; flex: 1 1 320px; } .fx-reduzido .passo .num { display: none; }
+  .fx-reduzido .cinco .fx-palco { display: block; padding: 64px 5vw; }
+  .fx-reduzido .palavras, .fx-reduzido .meio5, .fx-reduzido .modos, .fx-reduzido .soltos, .fx-reduzido .cont, .fx-reduzido .tit { position: static; display: block; width: auto; }
+  .fx-reduzido .palavras li, .fx-reduzido .modos > li, .fx-reduzido .soltos > li { opacity: 1; transform: none; margin-bottom: 16px; position: static; }
+  .fx-reduzido .soltos { display: flex; flex-wrap: wrap; gap: 8px; } .fx-reduzido .soltos .s { position: static; }
+  .fx-reduzido .cinco .fone { margin: 16px 0; } .fx-reduzido .cont { display: none; }
+  .fx-reduzido .palavras li { font-size: clamp(48px, 12vw, 120px); } .fx-reduzido .cinco { background: var(--amarelo); }
+  .fx-reduzido .ato-j .janela { aspect-ratio: auto; }
+  .fx-reduzido .soltos { display: none !important; }
+</style>
+</head>
+<body>
+
+<header class="topo">
+  <a class="marca" href="./" aria-label="Nice AI">NICE<b> AI</b></a>
+  <a class="versao" href="app/">Entrar</a>
+</header>
+
+<main>
+
+<!-- 1 · ABERTURA -->
+<section class="abre" data-fx-fundo="#fff500" data-fx-tinta="#0d0d0e" data-fx-fixa data-fx-altura="3">
+  <div class="fx-palco">
+    <h1>
+      <span data-fx-x="0,-1">Fale.</span>
+      <span class="o" data-fx-x="0,1">Ouça.</span>
+      <span data-fx-x="0,-1">Leia.</span>
+      <span class="r" data-fx-x="0,1">Escreva.</span>
+      <span class="o" data-fx-x="0,-1">Traduza.</span>
+    </h1>
+    <div class="meio" data-fx-escala="0.55,1" data-fx-y="140,0"><div class="fone"><div data-tela="dashboard"></div></div></div>
+    <div class="base" data-fx-opacidade="0,1" data-fx-faixa="0.35,0.8">
+      <p>O app de inglês da Nice English School. Cinco habilidades treinadas por IA, com o professor por perto.</p>
+      <span class="rot">Nice English School</span>
+    </div>
+  </div>
+</section>
+
+<!-- 2 · JORNADA: sete telas em filmstrip -->
+<section class="jorn" data-fx-fundo="#0d0d0e" data-fx-tinta="#f6f2f1" data-fx-fixa data-fx-altura="6">
+  <div class="fx-palco">
+    <div class="cab"><span class="rot">A jornada do aluno</span><h2>Sete passos até a primeira conversa.</h2></div>
+    <div data-fx="trilho">
+      <article class="passo"><span class="num" aria-hidden="true">1</span><div class="fone"><div data-tela="login"></div></div><div class="tx"><span class="rot">Entrada</span><h3>Um toque.</h3><p>Google, Apple ou e-mail. Sem fricção.</p></div></article>
+      <article class="passo"><span class="num" aria-hidden="true">2</span><div class="fone"><div data-tela="quiz"></div></div><div class="tx"><span class="rot">Perfil</span><h3>Três perguntas.</h3><p>Objetivo, nível e tempo por dia: 5, 10 ou 15 minutos.</p></div></article>
+      <article class="passo"><span class="num" aria-hidden="true">3</span><div class="fone"><div data-tela="diagnostico"></div></div><div class="tx"><span class="rot">Momento Aha</span><h3>Uma conversa.</h3><p>Nada de prova. A IA avalia pronúncia, vocabulário e fluência em 1 minuto.</p></div></article>
+      <article class="passo"><span class="num" aria-hidden="true">4</span><div class="fone"><div data-tela="resultado"></div></div><div class="tx"><span class="rot">Diagnóstico</span><h3>Seu nível.</h3><p>Resumo visual e a primeira trilha 100% personalizada.</p></div></article>
+      <article class="passo"><span class="num" aria-hidden="true">5</span><div class="fone"><div data-tela="paywall"></div></div><div class="tx"><span class="rot">Plano</span><h3>7 dias grátis.</h3><p>Ou lições limitadas. O Premium libera tutor ilimitado e correção de sotaque.</p></div></article>
+      <article class="passo"><span class="num" aria-hidden="true">6</span><div class="fone"><div data-tela="dashboard"></div></div><div class="tx"><span class="rot">Painel</span><h3>Uma meta.</h3><p>Barra do dia e um botão para a missão prática.</p></div></article>
+      <article class="passo"><span class="num" aria-hidden="true">7</span><div class="fone"><div data-tela="pratica"></div></div><div class="tx"><span class="rot">Prática</span><h3>Fale de verdade.</h3><p>Cenário por voz, ajuda em português e correção gentil.</p></div></article>
+    </div>
+  </div>
+</section>
+
+<!-- 3 · TRILHAS -->
+<section class="trilhas3" data-fx-fundo="#f0f3f5" data-fx-tinta="#0d0d0e">
+  <span class="rot">Depois do diagnóstico</span>
+  <h2 data-fx="subir">Escolha o caminho.</h2>
+  <ol class="linhas">
+    <li data-fx="esquerda"><span class="no">01</span><h3>NICE Method Full</h3><div><p>Os 6 books do método, com as dinâmicas ajustadas para funcionar de forma agêntica.</p><span class="tag">6 books</span></div></li>
+    <li data-fx="esquerda" data-fx-atraso="100"><span class="no">02</span><h3>Conversation</h3><div><p>Os books viram a base da conversa com o agente de IA.</p><span class="tag">Conversa guiada</span></div></li>
+    <li class="dest" data-fx="esquerda" data-fx-atraso="200"><span class="no">03</span><h3>Personalização total</h3><div><p>Objetivo e nota do diagnóstico viram uma mistura única de materiais.</p><span class="tag">Sob medida</span></div></li>
+    <li data-fx="esquerda" data-fx-atraso="300"><span class="no">+</span><h3>Videoaulas</h3><div><p>Vídeos curtos explicam aulas e atividades em qualquer ponto da trilha.</p><span class="tag">Opcional</span></div></li>
+  </ol>
+</section>
+
+<!-- 4 · CINCO HABILIDADES (pico): palavra gigante, aparelho e chips em três camadas -->
+<section class="cinco" data-passo="1" data-fx-fundo="#fff500" data-fx-tinta="#0d0d0e" data-fx-fixa data-fx-altura="8" data-fx-etapas="5" data-pilha>
+  <div class="fx-palco">
+    <ol class="palavras" data-legenda data-fx-x="70,-70"><li>Ouvir</li><li>Falar</li><li>Ler</li><li>Escrever</li><li>Traduzir</li></ol>
+    <div class="meio5"><div class="stage"><div class="fone"><div class="pilha">
+      <div data-tela="ouvir"></div><div data-tela="falar"></div><div data-tela="ler"></div><div data-tela="escrever"></div><div data-tela="traduzir"></div>
+    </div></div>
+      <ul class="soltos" data-legenda data-fx-y="60,-60">
+        <li><span class="s s1">Ouvir e escolher</span><span class="s s2">Resumir em inglês</span><span class="s s3">Responder falando</span></li>
+        <li><span class="s s1">Descrever a cena</span><span class="s s2">Conversar com a IA</span><span class="s s3">Ler em voz alta</span></li>
+        <li><span class="s s1">Texto e perguntas</span><span class="s s2">Vocabulário novo</span><span class="s s3">Sinônimos</span></li>
+        <li><span class="s s1">E-mails</span><span class="s s2">Lacunas</span><span class="s s3">Notícias difíceis</span></li>
+        <li><span class="s s1">PT para EN</span><span class="s s2">Falando</span><span class="s s3">Suas frases</span></li>
+      </ul>
+    </div></div>
+    <span class="tit">Cinco habilidades, cinco jeitos de treinar</span>
+    <ul class="modos" data-legenda>
+      <li><span class="rot">Ouvir</span><ul><li>Ouvir e selecionar</li><li>Ouvir e responder escrito ou falado</li><li>Ouvir e traduzir</li><li>Ouvir e resumir em inglês</li></ul></li>
+      <li><span class="rot">Falar</span><ul><li>Descrever uma cena</li><li>Frases com palavras novas</li><li>Conversar com a IA</li><li>Ler em voz alta</li></ul></li>
+      <li><span class="rot">Ler</span><ul><li>Compreensão com respostas dissertativas</li><li>Vocabulário novo com exemplo</li></ul></li>
+      <li><span class="rot">Escrever</span><ul><li>E-mails e formulários</li><li>Feedbacks e notícias difíceis</li><li>Textos com lacunas</li></ul></li>
+      <li><span class="rot">Traduzir</span><ul><li>Traduzir frases e textos</li><li>Escrito ou falando</li><li>Criar as próprias frases</li></ul></li>
+    </ul>
+    <div class="cont" aria-hidden="true"><b id="c5">1</b> / 5</div>
+  </div>
+</section>
+
+<!-- 5 · PERFIS EM ATOS -->
+<section class="ato" data-fx-fundo="#f0f3f5" data-fx-tinta="#0d0d0e">
+  <div class="ato-in">
+    <div><span class="rot">Perfil 1 de 4</span><h2 data-fx="palavras">Aluno</h2><p>Jornada de estudo nas 5 habilidades, plano, interações com a IA, dúvidas para o professor e evolução.</p><ul><li>Plano</li><li>Evolução</li><li>Dúvidas</li></ul></div>
+    <div class="ato-j" data-fx-paralaxe="0.06"><div class="janela"><div class="barra-j"><i></i><i></i><i></i><span>Nice AI · Aluno</span></div><div data-tela="aluno"></div></div></div>
+  </div>
+</section>
+<section class="ato" data-fx-fundo="#0d0d0e" data-fx-tinta="#f6f2f1">
+  <div class="ato-in">
+    <div><span class="rot" style="color:#fff500">Perfil 2 de 4</span><h2 data-fx="palavras">Professor</h2><p>Aulas, desempenho dos alunos, dúvidas e progresso. A IA treina todo dia; ele leva cada aluno mais longe.</p><ul><li>Turma</li><li>Dúvidas</li><li>Aulas</li></ul></div>
+    <div class="ato-j" data-fx-paralaxe="-0.06"><div class="janela" style="color:#fff500"><div class="barra-j"><i></i><i></i><i></i><span>Nice AI · Professor</span></div><div data-tela="professor"></div></div></div>
+  </div>
+</section>
+<section class="ato" data-fx-fundo="#af1615" data-fx-tinta="#ffffff">
+  <div class="ato-in">
+    <div><span class="rot">Perfil 3 de 4</span><h2 data-fx="palavras">Gestão</h2><p>Para o dono da escola: indicadores, financeiro, agendamentos, cadastro de alunos e gestão de acesso ao app.</p><ul><li>Indicadores</li><li>Financeiro</li><li>Acessos</li></ul></div>
+    <div class="ato-j" data-fx-paralaxe="0.06"><div class="janela" style="color:#0d0d0e"><div class="barra-j"><i></i><i></i><i></i><span>Nice AI · Gestão</span></div><div data-tela="gestao"></div></div></div>
+  </div>
+</section>
+<section class="ato" data-fx-fundo="#fff500" data-fx-tinta="#0d0d0e">
+  <div class="ato-in">
+    <div><span class="rot">Perfil 4 de 4</span><h2 data-fx="palavras">Sustentação</h2><p>Manutenção, melhorias e monitoramento. O que mantém o app funcionando, rápido e confiável.</p><ul><li>Monitoramento</li><li>Custo de IA</li><li>Versões</li></ul></div>
+    <div class="ato-j" data-fx-paralaxe="-0.06"><div class="janela" style="color:#0d0d0e"><div class="barra-j"><i></i><i></i><i></i><span>Nice AI · Sustentação</span></div><div data-tela="sustentacao"></div></div></div>
+  </div>
+</section>
+
+<!-- 6 · FECHAMENTO -->
+<section class="fecho" data-fx-fundo="#0d0d0e" data-fx-tinta="#f6f2f1">
+  <h2 data-fx="palavras">Fale hoje.</h2>
+  <a class="botao am" data-fx="surgir" href="app/">Testar de graça</a>
+  <small>App gratuito com IA para alunos da Nice English School. Telas ilustrativas.</small>
+</section>
+
+</main>
+<footer><span>Nice English School · Taubaté</span><span>Inglês em todo lugar · @be.niceschool</span></footer>
+
+<script>
+/* amplitude da abertura conforme a largura (antes do motor ler os atributos) */
+(function () {
+  var a = Math.round(window.innerWidth * 0.07);
+  var pw = document.querySelector(".palavras"); if (pw && window.innerWidth < 820) pw.setAttribute("data-fx-x", "0,0");
+  document.querySelectorAll(".abre h1 span").forEach(function (s) {
+    var p = s.getAttribute("data-fx-x").split(",");
+    s.setAttribute("data-fx-x", (parseFloat(p[0]) * a) + "," + (parseFloat(p[1]) * a));
+  });
+})();
+</script>
+<script src="shared/sites-incriveis.js" defer></script>
+<script src="shared/telas.js" defer></script>
+<script defer>
+(function () {
+  var c5 = document.getElementById("c5");
+  var s = document.querySelector(".cinco");
+  if (!c5 || !s) return;
+  new MutationObserver(function () { c5.textContent = s.getAttribute("data-passo") || "1"; })
+    .observe(s, { attributes: true, attributeFilter: ["data-passo"] });
+})();
+</script>
+</body>
+</html>
