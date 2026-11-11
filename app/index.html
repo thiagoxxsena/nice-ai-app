@@ -14,15 +14,16 @@
 </head>
 <body>
 <div class="app">
-  <header class="top"><a class="marca" href="../" style="text-decoration:none;color:inherit" aria-label="Nice AI — página inicial">NICE<b> AI</b></a><span class="badge" id="badge" hidden></span></header>
+  <header class="top"><a class="marca" href="../" style="text-decoration:none;color:inherit" aria-label="Nice AI — página inicial">NICE<b> AI</b></a><div class="top-d"><select id="area" class="area" aria-label="Trocar de área" hidden></select><span class="badge" id="badge" hidden></span></div></header>
   <main id="tela"></main>
-  <nav class="tabs" id="tabs" hidden aria-label="Navegação">
-    <button data-t="painel">Início</button><button data-t="praticar">Praticar</button><button data-t="progresso">Progresso</button><button data-t="perfil">Perfil</button>
-  </nav>
+  <nav class="tabs" id="tabs" hidden aria-label="Navegação"></nav>
 </div>
 <div id="toast" role="status"></div>
 <script src="../config.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="voz.js"></script>
 <script src="app.js"></script>
+<script src="equipe.js"></script>
+<script>Nice.iniciar();</script>
 </body>
 </html>

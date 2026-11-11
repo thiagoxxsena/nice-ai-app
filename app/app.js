@@ -1,9 +1,10 @@
-/* Nice AI — app do aluno (V3). Front estático; a IA e os dados ficam no Apps Script (rotas api). */
+/* Nice AI — app (V3): aluno, professor, gestão e sustentação. Front estático; a IA e os dados ficam no Apps Script (rotas api). */
 (function () {
   "use strict";
   var CFG = window.NICE_CFG || {};
   var tela = document.getElementById("tela"), tabsEl = document.getElementById("tabs"), badge = document.getElementById("badge");
-  var S = { token: "", user: null, painel: null, demo: false, sessao: null, voz: true, ativo: false, rec: null, q: { i: 0 } };
+  var S = { token: "", user: null, painel: null, demo: false, demoPerfil: "ALUNO", area: "aluno", sessao: null, voz: true, vozNatural: true, ativo: false, rec: null, live: null, q: { i: 0 } };
+  var VZ = window.NiceVoz || null;
   try { S.token = sessionStorage.getItem("nice_tk") || ""; } catch (e) {}
 
   /* ---------- utilidades ---------- */
@@ -49,15 +50,47 @@
   }
 
   /* ---------- voz ---------- */
-  function falar(texto, idioma) {
-    if (!S.voz || !window.speechSynthesis) return;
+  var cacheVoz = {}, ordemVoz = [];
+  function falarNavegador(texto, idioma) {
+    if (!window.speechSynthesis) return;
     try { speechSynthesis.cancel(); var u = new SpeechSynthesisUtterance(texto); u.lang = idioma === "pt" ? "pt-BR" : "en-US"; u.rate = 0.95; speechSynthesis.speak(u); } catch (e) {}
   }
-  function parar() {
-    try { if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) {}
-    try { if (S.rec) S.rec.stop(); } catch (e) {}
-    S.rec = null; S.ativo = false;
+  /* Voz natural do Gemini (via servidor). Sem chave, sem rede ou na demonstração: voz do navegador. */
+  function falar(texto, idioma) {
+    if (!S.voz || !texto) return;
+    pararFala();
+    if (S.demo || !S.vozNatural || !VZ) { falarNavegador(texto, idioma); return; }
+    var k = (idioma || "en") + "|" + texto, meu = Date.now() + Math.random();
+    S.falaId = meu;
+    function tocar(r) { if (S.falaId !== meu || !S.voz) return; VZ.saidaTts.parar(); VZ.saidaTts.tocarPcm(r.audio, r.rate); }
+    if (cacheVoz[k]) { tocar(cacheVoz[k]); return; }
+    VZ.saidaTts.abrir();
+    var desistiu = false, t = setTimeout(function () { desistiu = true; if (S.falaId === meu) falarNavegador(texto, idioma); }, 9000);
+    api("voz.falar", { texto: texto, idioma: idioma === "pt" ? "pt" : "en" }).then(function (r) {
+      clearTimeout(t);
+      cacheVoz[k] = r; ordemVoz.push(k);
+      if (ordemVoz.length > 40) delete cacheVoz[ordemVoz.shift()];
+      if (!desistiu) tocar(r);
+    }).catch(function (err) {
+      clearTimeout(t);
+      if (/chave do Gemini|indisponível/.test(err.message)) S.vozNatural = false;
+      if (!desistiu && S.falaId === meu) falarNavegador(texto, idioma);
+    });
   }
+  function pararFala() {
+    S.falaId = 0;
+    try { if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) {}
+    try { if (VZ) VZ.saidaTts.parar(); } catch (e) {}
+  }
+  function parar() {
+    pararFala();
+    try { if (S.rec) S.rec.stop(); } catch (e) {}
+    try { if (S.grav) S.grav.parar(); } catch (e) {}
+    try { if (S.live) S.live.fechar(); } catch (e) {}
+    S.rec = null; S.grav = null; S.live = null; S.ativo = false;
+  }
+  /* Destrava o áudio no primeiro toque (exigência do iPhone). */
+  document.addEventListener("click", function () { if (VZ && !S.demo && S.user) VZ.saidaTts.abrir(); }, { passive: true });
 
   /* ---------- tempo de prática ---------- */
   var acum = 0;
@@ -70,6 +103,29 @@
 
   /* ---------- roteador ---------- */
   var V = {};
+  var AREAS = {
+    aluno: { nome: "Aluno", abas: [["painel", "Início"], ["praticar", "Praticar"], ["progresso", "Progresso"], ["perfil", "Perfil"]] },
+    professor: { nome: "Professor", abas: [["profInicio", "Início"], ["profAlunos", "Alunos"], ["profDuvidas", "Dúvidas"], ["profAgenda", "Agenda"]] },
+    gestao: { nome: "Gestão", abas: [["gesInicio", "Indicadores"], ["gesUsuarios", "Acessos"], ["gesAgenda", "Agenda"], ["gesPlanos", "Planos"]] },
+    suporte: { nome: "Sustentação", abas: [["supInicio", "Saúde"], ["supIA", "Chave e voz"], ["supCusto", "Custos"], ["supEquipe", "Equipe"]] }
+  };
+  var appEl = document.querySelector(".app"), areaSel = document.getElementById("area");
+  function areas() { return (S.user && S.user.areas && S.user.areas.length) ? S.user.areas : ["aluno"]; }
+  function montarArea(a) {
+    S.area = a;
+    var ar = AREAS[a] || AREAS.aluno, l = areas();
+    tabsEl.innerHTML = ar.abas.map(function (x) { return '<button data-t="' + x[0] + '">' + esc(x[1]) + "</button>"; }).join("");
+    appEl.classList.toggle("equipe", a !== "aluno");
+    areaSel.hidden = !S.user || l.length < 2;
+    areaSel.innerHTML = l.map(function (x) { return '<option value="' + x + '"' + (x === a ? " selected" : "") + ">" + esc((AREAS[x] || {}).nome || x) + "</option>"; }).join("");
+  }
+  areaSel.addEventListener("change", function () { abrirArea(areaSel.value); });
+  function abrirArea(a) {
+    if (S.user) lsSet("nice_area_" + email(), a);
+    montarArea(a);
+    if (a === "aluno") { go("carregando"); carregarPainel().then(proximo, function (e) { falhou(e); go("perfil"); }); }
+    else go(AREAS[a].abas[0][0]);
+  }
   function go(nome, p) {
     parar();
     S.tela = nome;
@@ -77,9 +133,10 @@
     tela.className = v.classe || "";
     tela.innerHTML = v.html;
     tela.scrollTop = 0;
-    var comAbas = ["painel", "praticar", "progresso", "perfil"].indexOf(nome) >= 0;
+    var abas = (AREAS[S.area] || AREAS.aluno).abas.map(function (x) { return x[0]; });
+    var atual = v.aba || nome, comAbas = abas.indexOf(atual) >= 0;
     tabsEl.hidden = !comAbas;
-    if (comAbas) [].forEach.call(tabsEl.querySelectorAll("button"), function (b) { b.classList.toggle("on", b.getAttribute("data-t") === nome); });
+    if (comAbas) [].forEach.call(tabsEl.querySelectorAll("button"), function (b) { b.classList.toggle("on", b.getAttribute("data-t") === atual); });
     badge.textContent = S.demo ? "Demonstração" : (S.user ? String(S.user.nome || "").split(" ")[0] : "");
     badge.className = "badge" + (S.demo ? " demo" : "");
     badge.hidden = !badge.textContent;
@@ -98,12 +155,14 @@
   /* ---------- login / sessão ---------- */
   function entrar() {
     go("carregando");
-    return api("bootstrap").then(function (b) { S.user = b.usuario; return carregarPainel(); })
-      .then(proximo)
-      .catch(function (err) { S.user = null; go("login", { erro: err.message }); if (err.auth) { S.token = ""; try { sessionStorage.removeItem("nice_tk"); } catch (e) {} } });
+    return api("bootstrap").then(function (b) {
+      S.user = b.usuario;
+      var l = areas(), salva = lsGet("nice_area_" + email(), "");
+      abrirArea(l.indexOf(salva) >= 0 ? salva : l[0]);
+    }).catch(function (err) { S.user = null; montarArea("aluno"); go("login", { erro: err.message }); if (err.auth) { S.token = ""; try { sessionStorage.removeItem("nice_tk"); } catch (e) {} } });
   }
   function sair(silencioso) {
-    parar(); S.token = ""; S.user = null; S.painel = null; S.demo = false;
+    parar(); S.token = ""; S.user = null; S.painel = null; S.demo = false; montarArea("aluno");
     try { sessionStorage.removeItem("nice_tk"); } catch (e) {}
     try { if (window.google && google.accounts) google.accounts.id.disableAutoSelect(); } catch (e) {}
     go("login");
@@ -127,10 +186,11 @@
       '<p>15 minutos por dia com um tutor de IA que se adapta ao seu nível. Sem prova escrita.</p></div>' +
       (p.erro ? '<div class="erro" role="alert">' + esc(p.erro) + "</div>" : "") +
       (configurado() ? '<div id="gsi" aria-label="Entrar com Google"></div>' : '<div class="info">O login Google ainda não está configurado neste endereço. Use a demonstração.</div>') +
-      '<button class="btn fantasma" id="demo">Ver demonstração</button>' +
+      '<div class="demo-l"><span class="rot">Ver demonstração como</span><div class="demo-b">' +
+      [["ALUNO", "Aluno"], ["PROFESSOR", "Professor"], ["ADMIN", "Gestão"], ["SUPORTE", "Sustentação"]].map(function (x) { return '<button class="pill" data-demo="' + x[0] + '">' + x[1] + "</button>"; }).join("") + "</div></div>" +
       '<p class="nota-legal">Seu e-mail precisa estar cadastrado pela escola. Idade mínima: 16 anos. Usamos IA para conversar e corrigir; o áudio não é guardado.</p>',
       bind: function (el) {
-        $("#demo", el).onclick = function () { S.demo = true; Demo.reset(); entrar(); };
+        [].forEach.call(el.querySelectorAll("[data-demo]"), function (b) { b.onclick = function () { S.demo = true; S.demoPerfil = b.getAttribute("data-demo"); Demo.reset(); entrar(); }; });
         if (configurado()) iniciarGSI(0);
       } };
   };
@@ -196,16 +256,31 @@
             if (r.fim && cfg.aoFim) { trava(true); add("sis", "Analisando seu nível…"); setTimeout(function () { cfg.aoFim(r); }, 1200); }
           }).catch(function (err) { digitando(false); trava(false); txt.value = o.travou ? "" : texto; falhou(err); });
         }
-        $("#voz", el).onclick = function () { S.voz = !S.voz; this.textContent = "Voz da IA: " + (S.voz ? "ligada" : "desligada"); this.setAttribute("aria-pressed", S.voz); if (!S.voz) try { speechSynthesis.cancel(); } catch (e) {} };
+        $("#voz", el).onclick = function () { S.voz = !S.voz; this.textContent = "Voz da IA: " + (S.voz ? "ligada" : "desligada"); this.setAttribute("aria-pressed", S.voz); if (!S.voz) pararFala(); };
         env.onclick = function () { var t = txt.value.trim(); if (t) enviar(t); };
         txt.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); env.onclick(); } };
         trav.onclick = function () { enviar("", { travou: true }); };
         if ($("#fim", el)) $("#fim", el).onclick = function () { api("sessao.encerrar", { sessaoId: sess.id }).catch(function () {}); carregarPainel().then(function () { go("painel"); }, function () { go("painel"); }); };
         mic.onclick = function () {
           if (S.rec) { try { S.rec.stop(); } catch (e) {} return; }
+          if (S.grav) {
+            var g = S.grav; S.grav = null; mic.classList.remove("on"); txt.placeholder = "Transcrevendo…";
+            g.parar().then(function (a) {
+              txt.placeholder = "Escreva ou use o microfone";
+              if (!a || !a.audio) return;
+              return api("voz.transcrever", { audio: a.audio, mime: a.mime, segundos: a.segundos, idioma: "en" }).then(function (r) { if (r.texto) enviar(r.texto); else toast("Não ouvi nada. Tente de novo."); });
+            }).catch(function (err) { txt.placeholder = "Escreva ou use o microfone"; falhou(err); });
+            return;
+          }
           var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-          if (!SR) { toast("Seu navegador não tem reconhecimento de voz. Use o Chrome ou digite."); return; }
-          try { speechSynthesis.cancel(); } catch (e) {}
+          pararFala();
+          /* Sem reconhecimento no navegador (ou iPhone, onde ele falha muito): grava e transcreve no servidor com o Gemini. */
+          if (!SR || (/iPhone|iPad|iPod/.test(navigator.userAgent) && !S.demo)) {
+            if (S.demo || !S.vozNatural || !VZ || !VZ.Gravador.disponivel()) { toast("Seu navegador não reconhece voz. Digite a resposta."); return; }
+            var gr = new VZ.Gravador();
+            gr.iniciar().then(function () { S.grav = gr; mic.classList.add("on"); txt.placeholder = "Gravando… toque de novo para enviar"; }, function () { toast("Permita o microfone no navegador."); });
+            return;
+          }
           var r = new SR(), final = "";
           r.lang = "en-US"; r.interimResults = true; r.continuous = false;
           r.onresult = function (e) { var t = ""; for (var i = 0; i < e.results.length; i++) { t += e.results[i][0].transcript; if (e.results[i].isFinal) final = t; } txt.value = t; };
@@ -221,15 +296,127 @@
       } };
   }
 
-  V.teste = function () {
+  function podeLive() { return !S.demo && S.vozNatural && VZ && VZ.suportaLive() && !(S.painel && S.painel.iaAtiva === false) && !S.semLive; }
+  V.teste = function (p) {
+    if (!p.texto && podeLive()) return V.live({ modulo: "nivelamento", titulo: "Converse com o Alex", rot: "Teste de nível por voz" });
     return chat({ modulo: "nivelamento", rot: "Teste de nível", titulo: "Converse com o Alex", meter: true, total: 7,
       aoFim: function () { carregarPainel().then(function () { go("resultado"); }, function () { go("resultado"); }); } });
   };
 
   V.pratica = function (p) {
     var c = CENAS.filter(function (x) { return x.id === p.cena; })[0] || CENAS[0];
+    if (!p.texto && podeLive()) return V.live({ modulo: "fala", cena: c.desc + ". You play " + c.papel + ". Open the scene with this line or similar: " + c.bolha, titulo: c.titulo, rot: "Prática por voz", cenaId: c.id });
     var cenario = "Let's role-play. Scenario: " + c.desc + ". You play " + c.papel + ". Keep every reply under 30 words, stay in character and wait for my answer. Start the scene with one short line.";
-    return chat({ modulo: "fala", rot: "Prática por voz", titulo: c.titulo, cenario: cenario, encerrar: true });
+    return chat({ modulo: "fala", rot: "Prática por voz", titulo: c.titulo, cenario: cenario, encerrar: true, aba: "praticar" });
+  };
+
+  /* ----- conversa ao vivo (Gemini Live): voz natural nos dois sentidos ----- */
+  V.live = function (cfg) {
+    var nivel = cfg.modulo === "nivelamento";
+    return { classe: "chat live", html:
+      '<div class="chat-cab"><div><span class="rot">' + esc(cfg.rot) + "</span><h2>" + esc(cfg.titulo) + '</h2></div><span class="tag" id="lv-s">ao vivo</span></div>' +
+      (nivel ? '<div class="meter"><div class="linha2"><span class="rot" id="pg-t">Pergunta 1 de 7</span></div><div class="prog"><i id="pg" style="width:0"></i></div></div>' : "") +
+      '<div class="orbe-w"><button class="orbe" id="orbe" data-e="parado" aria-label="Começar conversa"><i></i><span id="orbe-l">Toque para começar</span></button>' +
+      '<p class="orbe-d" id="orbe-d">' + (nivel ? "Uma conversa de uns 3 minutos com o Alex. Fale do seu jeito: ele adapta as perguntas ao seu nível." : "O tutor faz o papel do outro lado e corrige sem parar a conversa.") + " Use fone, se puder.</p></div>" +
+      '<div class="msgs" id="msgs" aria-live="polite"></div>' +
+      '<div class="comp"><div class="comp-l"><input id="txt" placeholder="Prefere digitar? Escreva aqui" autocomplete="off" maxlength="500" aria-label="Sua resposta" disabled><button class="ic" id="env" aria-label="Enviar" disabled>→</button></div>' +
+      '<div class="comp-a"><button class="pill" id="mudo" disabled aria-pressed="false">Microfone: ligado</button><button class="pill" id="trav" disabled>Não sei o que dizer</button><button class="pill" id="fim" disabled>Encerrar</button></div>' +
+      '<button class="link" id="txtmode">Usar o chat escrito</button></div>',
+      bind: function (el) {
+        var msgs = $("#msgs", el), orbe = $("#orbe", el), orbeL = $("#orbe-l", el), txt = $("#txt", el), env = $("#env", el);
+        var bolhas = { aluno: null, agente: null }, sess = null, encerrando = false, timer = null, maxSeg = 600;
+        var ROT = { parado: "Toque para começar", conectando: "Conectando…", ouvindo: "Pode falar", falando: "Alex falando", fim: "Avaliando…" };
+        function estado(e) { orbe.setAttribute("data-e", e); orbeL.textContent = ROT[e] || e; }
+        function bolha(papel, t, final) {
+          if (!bolhas[papel]) { bolhas[papel] = document.createElement("div"); bolhas[papel].className = "bol " + (papel === "aluno" ? "eu" : "ia"); msgs.appendChild(bolhas[papel]); }
+          bolhas[papel].textContent = t;
+          if (final) bolhas[papel] = null;
+          msgs.scrollTop = msgs.scrollHeight;
+        }
+        function sis(t) { var d = document.createElement("div"); d.className = "bol sis"; d.textContent = t; msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight; }
+        function libera(on) { ["#txt", "#env", "#mudo", "#trav", "#fim"].forEach(function (s) { $(s, el).disabled = !on; }); }
+        function paraTexto(motivo) {
+          S.semLive = true;
+          if (motivo) toast(motivo);
+          setTimeout(function () { if (nivel) go("teste", { texto: 1 }); else go("pratica", { cena: cfg.cenaId, texto: 1 }); }, motivo ? 900 : 0);
+        }
+        function encerrar() {
+          if (encerrando || !S.live) return;
+          encerrando = true; clearInterval(timer); libera(false); estado("fim");
+          var lv = S.live;
+          lv.fecharTurnos();
+          var turnos = lv.turnos.slice(), seg = lv.segundos();
+          lv.fechar(); S.live = null; S.ativo = false;
+          sis("Conversa encerrada. Avaliando sua fala…");
+          api("voz.liveEncerrar", { sessaoId: sess.sessaoId, turnos: turnos, segundos: seg }).then(function (r) {
+            if (!nivel) { go("liveResumo", r); return; }
+            if (!r.nivelFinal) toast("Precisamos de mais respostas. Continue pelo chat.");
+            carregarPainel().then(function () { go(r.nivelFinal ? "resultado" : "teste", r.nivelFinal ? {} : { texto: 1 }); }, function () { go("resultado"); });
+          }).catch(function (err) { falhou(err); go(nivel ? "resultado" : "praticar"); });
+        }
+        orbe.onclick = function () {
+          if (S.live || encerrando) { if (S.live && S.live.saida.tocando()) S.live.saida.parar(); return; }
+          var lv = new VZ.Live({
+            onEstado: estado,
+            onTexto: function (papel, t, final) { bolha(papel, t, final); },
+            onTurno: function (n) {
+              if (!nivel || !sess) return;
+              var k = Math.min(n + 1, sess.turnos);
+              $("#pg-t", el).textContent = "Pergunta " + k + " de " + sess.turnos;
+              $("#pg", el).style.width = Math.round(Math.min(n, sess.turnos) / sess.turnos * 100) + "%";
+              if (n >= sess.turnos) setTimeout(encerrar, 600);
+            },
+            onAviso: toast,
+            onFechar: function () { if (!encerrando) { sis("A conexão caiu."); encerrar(); } }
+          });
+          lv.prepararAudio();
+          S.live = lv; S.ativo = true; estado("conectando");
+          api("voz.liveIniciar", { modulo: cfg.modulo, cena: cfg.cena || "" }).then(function (r) {
+            sess = r; maxSeg = r.maxSeg || 600;
+            return lv.conectar({ wsUrl: r.wsUrl, token: r.token, setup: r.setup, textoInicial: "Hi! I am ready." });
+          }).then(function () {
+            libera(true); $("#orbe-d", el).hidden = true;
+            timer = setInterval(function () {
+              var s = lv.segundos(), rest = maxSeg - s;
+              $("#lv-s", el).textContent = Math.floor(s / 60) + ":" + pad(s % 60);
+              if (rest === 60) toast("Falta 1 minuto para encerrar.");
+              if (rest <= 0) encerrar();
+            }, 1000);
+          }).catch(function (err) {
+            try { lv.fechar(); } catch (e) {}
+            S.live = null;
+            if (sess) api("voz.liveEncerrar", { sessaoId: sess.sessaoId, turnos: [], segundos: 0 }).catch(function () {});
+            sess = null;
+            if (/microfone|Permission|NotAllowed|denied/i.test((err && (err.message + " " + err.name)) || "")) { estado("parado"); toast("Permita o microfone no navegador ou use o chat escrito."); return; }
+            paraTexto((err && /limite|desligada/.test(err.message)) ? err.message : "A conversa ao vivo não abriu. Vamos pelo chat com voz.");
+          });
+        };
+        env.onclick = function () { var t = txt.value.trim(); if (t && S.live) { S.live.enviarTexto(t); txt.value = ""; } };
+        txt.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); env.onclick(); } };
+        $("#trav", el).onclick = function () { if (S.live) { S.live.enviarTexto("(I am stuck. Please help me in Portuguese with one short sentence and give me an easy English sentence to repeat.)", true); sis("Você pediu ajuda"); } };
+        $("#mudo", el).onclick = function () { if (!S.live) return; var m = S.live.alternarMudo(); this.textContent = "Microfone: " + (m ? "desligado" : "ligado"); this.setAttribute("aria-pressed", m); };
+        $("#fim", el).onclick = encerrar;
+        $("#txtmode", el).onclick = function () {
+          if (S.live) {
+            encerrando = true; clearInterval(timer);
+            var lv = S.live; lv.fechar(); S.live = null;
+            if (sess) api("voz.liveEncerrar", { sessaoId: sess.sessaoId, turnos: lv.turnos, segundos: lv.segundos() }).catch(function () {});
+          }
+          paraTexto("");
+        };
+      } };
+  };
+
+  V.liveResumo = function (r) {
+    var cs = (r.correcoes || []).map(function (c) { return '<div class="bol dica"><s>' + esc(c.original) + "</s> → <em>" + esc(c.corrigido) + "</em><br>" + esc(c.explicacao) + "</div>"; }).join("");
+    return { aba: "praticar", html: '<span class="rot">Conversa encerrada</span><h2>' + (r.falas ? "Boa conversa!" : "Sem falas desta vez.") + "</h2>" +
+      (r.falas ? '<div class="cartao"><div class="linha2"><span class="rot">Nota de fala</span><b style="font-size:32px">' + (r.nota || "—") + "</b></div>" + (r.resumo ? "<p>" + esc(r.resumo) + "</p>" : "") + "</div>" : "<p>Não captei sua voz. Confira o microfone e tente de novo.</p>") +
+      (cs ? '<div class="sec"><span class="rot">Para lembrar</span>' + cs + "</div>" : "") +
+      '<div class="grow"></div><button class="btn" id="mais">Praticar outra cena</button><button class="btn fantasma" id="ini">Voltar ao início</button>',
+      bind: function (el) {
+        $("#mais", el).onclick = function () { go("praticar"); };
+        $("#ini", el).onclick = function () { carregarPainel().then(function () { go("painel"); }, function () { go("painel"); }); };
+      } };
   };
 
   V.resultado = function () {
@@ -306,8 +493,32 @@
       '<div class="sec"><div class="kv"><span>Nome</span><b>' + esc((S.user && S.user.nome) || a.Nome || "") + '</b></div><div class="kv"><span>E-mail</span><b style="font-size:15px">' + esc(S.user && S.user.email) + '</b></div>' +
       '<div class="kv"><span>Nível</span><b>' + esc(a.Nivel ? a.Nivel + " · " + NIVEIS[a.Nivel] : "A definir") + '</b></div><div class="kv"><span>Objetivo</span><b>' + esc(pf.objetivo || a.Objetivo || "—") + '</b></div>' +
       '<div class="kv"><span>Meta diária</span><b>' + meta() + ' min</b></div><div class="kv"><span>Plano</span><b>' + (pf.plano === "trial" ? "Teste grátis de 7 dias" : pf.plano === "limitado" ? "Lições limitadas" : "—") + "</b></div></div>" +
+      '<button class="op" id="duv"><span>Dúvidas ao professor<small>Pergunte e receba a resposta aqui</small></span><span>→</span></button>' +
       '<div class="grow"></div><button class="btn fantasma" id="sair">Sair</button>',
-      bind: function (el) { $("#sair", el).onclick = function () { sair(); }; } };
+      bind: function (el) { $("#sair", el).onclick = function () { sair(); }; $("#duv", el).onclick = function () { go("duvidas"); }; } };
+  };
+
+  V.duvidas = function () {
+    return { aba: "perfil", html: '<span class="rot">Fale com o professor</span><h2>Dúvidas.</h2>' +
+      '<div class="cartao"><label class="rot" for="dv">Sua pergunta</label><textarea id="dv" class="campo" rows="3" maxlength="1000" placeholder="Ex.: quando uso make e quando uso do?"></textarea><button class="btn" id="dv-e">Enviar ao professor</button></div>' +
+      '<div class="sec" id="dv-l"><span class="rot">Carregando…</span></div>',
+      bind: function (el) {
+        function carregar() {
+          api("aluno.duvidas").then(function (l) {
+            $("#dv-l", el).innerHTML = l.length ? l.map(function (d) {
+              return '<div class="cartao"><div class="linha2"><span class="rot">' + esc(String(d.Quando).slice(0, 10).split("-").reverse().join("/")) + '</span><span class="tag' + (d.Status === "ABERTA" ? " cinza" : "") + '">' + (d.Status === "ABERTA" ? "Aguardando" : "Respondida") + "</span></div><b>" + esc(d.Texto) + "</b>" +
+                (d.Resposta ? '<p class="resp">' + esc(d.Resposta) + "<small> — " + esc(d.RespondidaPor || "Professor") + "</small></p>" : "") + "</div>";
+            }).join("") : "<p>Nenhuma dúvida enviada ainda.</p>";
+          }).catch(function (err) { $("#dv-l", el).innerHTML = ""; falhou(err); });
+        }
+        $("#dv-e", el).onclick = function () {
+          var t = $("#dv", el).value.trim(), b = this;
+          if (t.length < 3) { toast("Escreva sua dúvida."); return; }
+          b.disabled = true;
+          api("aluno.duvidaEnviar", { texto: t }).then(function () { $("#dv", el).value = ""; b.disabled = false; toast("Dúvida enviada ao professor."); carregar(); }).catch(function (err) { b.disabled = false; falhou(err); });
+        };
+        carregar();
+      } };
   };
 
   /* ---------- demonstração (respostas simuladas, sem servidor) ---------- */
@@ -324,7 +535,11 @@
     },
     run: function (rota, a) {
       var st = Demo.st;
-      if (rota === "bootstrap") return { usuario: { email: "demo@nice.ai", nome: "Ana", perfil: "ALUNO", nivel: st.nivel } };
+      if (rota === "bootstrap") {
+        var pf = S.demoPerfil, ar = { ALUNO: ["aluno"], PROFESSOR: ["professor", "aluno"], ADMIN: ["gestao", "professor", "aluno"], SUPORTE: ["suporte"] }[pf] || ["aluno"];
+        return { usuario: { email: "demo-" + pf.toLowerCase() + "@nice.ai", nome: { ALUNO: "Ana", PROFESSOR: "Paulo", ADMIN: "Gil", SUPORTE: "Sara" }[pf], perfil: pf, areas: ar, nivel: st.nivel } };
+      }
+      if (window.Nice && Nice.demoRotas[rota]) return Nice.demoRotas[rota](a, st);
       if (rota === "aluno.perfilSalvar") { st.obj = a.objetivo; return { ok: true }; }
       if (rota === "aluno.painel") return { aluno: { Nome: "Ana", Nivel: st.nivel, Objetivo: st.obj, Idioma: "pt" }, progresso: { leitura: 0, escrita: 0, escuta: 0, fala: st.fala }, fluencia: st.fala, streak: st.sessoes.length ? 1 : 0, temaDia: "Viagens", amostra: ["boarding pass", "layover", "luggage", "delay"], sessoes: st.sessoes.slice(0, 5), iaAtiva: false, precisaNivelamento: !st.nivel };
       if (rota === "sessao.iniciar") { st.sess++; st.turn = 0; st.cafe = 0; st.sessoes.unshift({ Modulo: a.modulo, Inicio: new Date().toISOString() }); return { sessaoId: "demo" + st.sess, abertura: a.modulo === "nivelamento" ? "Hi! I'm Alex, your AI tutor. Why do you want to learn English?" : "", nivel: st.nivel }; }
@@ -350,8 +565,16 @@
   };
   Demo.reset();
 
-  /* ---------- início ---------- */
-  if (/[?&]demo\b/.test(location.search)) { S.demo = true; entrar(); }
-  else if (S.token && configurado()) entrar();
-  else go("login");
+  /* ---------- API para as telas da equipe (equipe.js) e início ---------- */
+  window.Nice = {
+    S: S, V: V, api: api, go: go, esc: esc, toast: toast, falhou: falhou, $: $, pad: pad, falar: falar, pararFala: pararFala, NIVEIS: NIVEIS,
+    demoRotas: {},
+    iniciar: function () {
+      montarArea("aluno");
+      var m = /[?&]demo(?:=(\w+))?/.exec(location.search);
+      if (m) { S.demo = true; S.demoPerfil = ({ professor: "PROFESSOR", gestao: "ADMIN", suporte: "SUPORTE" })[String(m[1] || "").toLowerCase()] || "ALUNO"; Demo.reset(); entrar(); }
+      else if (S.token && configurado()) entrar();
+      else go("login");
+    }
+  };
 })();

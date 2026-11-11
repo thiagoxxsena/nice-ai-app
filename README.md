@@ -5,7 +5,10 @@ Landing (visual V3) na raiz e app do aluno em `app/`. Site estático, pronto par
 ## Estrutura
 
 - `index.html`: página de entrada (rolagem animada). O botão "Testar de graça" abre `app/`.
-- `app/`: app do aluno (`index.html`, `app.css`, `app.js`).
+- `app/`: o app (`index.html`, `app.css`).
+  - `app.js`: login, roteamento por perfil e telas do aluno.
+  - `voz.js`: voz natural (toca o áudio do Gemini, conversa ao vivo por WebSocket, gravador para transcrição).
+  - `equipe.js`: telas de Professor, Gestão e Sustentação.
 - `shared/`: motor de animação e estilos das telas da landing.
 - `config.js`: endereço do Apps Script (`API_URL`) e ID do cliente Google (`CLIENT_ID`).
 
@@ -13,7 +16,25 @@ Landing (visual V3) na raiz e app do aluno em `app/`. Site estático, pronto par
 
 O app chama o Apps Script do projeto por `POST` (rotas `bootstrap`, `aluno.painel`, `aluno.perfilSalvar`, `sessao.iniciar`, `sessao.enviar`, `sessao.encerrar`). A chave da IA fica só no servidor. O login usa Google Identity Services.
 
-Demonstração sem servidor: abra `app/?demo` ou use o botão "Ver demonstração". As respostas são simuladas.
+Demonstração sem servidor: `app/?demo` (aluno), `app/?demo=professor`, `app/?demo=gestao` ou `app/?demo=suporte`. Os dados são de exemplo. Na demonstração a voz é a do navegador.
+
+## Perfis e telas
+
+| Perfil | Abre em | Abas |
+|---|---|---|
+| Aluno | Início | Início, Praticar, Progresso, Perfil (com Dúvidas ao professor) |
+| Professor | Professor | Início (notas a validar, aulas), Alunos (ficha, nível, recado, conversas), Dúvidas, Agenda |
+| Gestão (ADMIN) | Gestão | Indicadores, Acessos (liberar e bloquear), Agenda da escola, Planos. Também abre Professor e Aluno |
+| Sustentação (SUPORTE) | Sustentação | Saúde (testes e erros), Chave e voz, Custos, Equipe |
+
+O dono do script entra como Gestão e também vê a Sustentação.
+
+## Voz
+
+- Conversa ao vivo (teste de nível e prática): Gemini Live. O Apps Script cria um token temporário de uso único, já travado com modelo, voz e instruções. O navegador conecta direto no Gemini com esse token. A chave nunca sai do servidor.
+- Voz lida (palavras e respostas do chat): Gemini TTS, com cache no servidor e no navegador.
+- Transcrição: na conversa ao vivo, vem do próprio Gemini. No chat, usa o reconhecimento do navegador; sem ele (ou no iPhone), grava e transcreve no servidor.
+- Se algo falhar (sem chave, Live desligado, limite do dia, rede), o app volta para o chat com voz do navegador.
 
 ## Jornada do aluno implementada
 
