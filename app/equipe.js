@@ -316,6 +316,7 @@
   V.supIA = function (p) {
     return { classe: "eq", html: tela("Sustentação", "Chave e voz."), bind: function (el) {
       var cfg = {};
+      if (S.demo) { $("#corpo", el).innerHTML = '<div class="erro" role="alert"><b>Você está na demonstração.</b> Aqui a chave NÃO é enviada ao servidor e os testes são de mentira. Para cadastrar a chave de verdade: toque em Sair (canto superior), depois em Continuar com o Google e entre com a conta dona do portal.</div>'; return; }
       Promise.all([api("sup.painel"), api("sup.config")]).then(function (r) {
         var d = r[0], c = d.chave;
         r[1].forEach(function (x) { cfg[x.Chave] = x.Valor; });

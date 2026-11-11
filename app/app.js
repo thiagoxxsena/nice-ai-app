@@ -109,7 +109,8 @@
     gestao: { nome: "Gestão", abas: [["gesInicio", "Indicadores"], ["gesUsuarios", "Acessos"], ["gesAgenda", "Agenda"], ["gesPlanos", "Planos"]] },
     suporte: { nome: "Sustentação", abas: [["supInicio", "Saúde"], ["supIA", "Chave e voz"], ["supCusto", "Custos"], ["supEquipe", "Equipe"]] }
   };
-  var appEl = document.querySelector(".app"), areaSel = document.getElementById("area");
+  var appEl = document.querySelector(".app"), areaSel = document.getElementById("area"), sairTop = document.getElementById("sair-top");
+  sairTop.addEventListener("click", function () { sair(); });
   function areas() { return (S.user && S.user.areas && S.user.areas.length) ? S.user.areas : ["aluno"]; }
   function montarArea(a) {
     S.area = a;
@@ -140,6 +141,7 @@
     badge.textContent = S.demo ? "Demonstração" : (S.user ? String(S.user.nome || "").split(" ")[0] : "");
     badge.className = "badge" + (S.demo ? " demo" : "");
     badge.hidden = !badge.textContent;
+    sairTop.hidden = !S.user;
     if (v.bind) v.bind(tela);
   }
   tabsEl.addEventListener("click", function (e) { var b = e.target.closest("button"); if (b) go(b.getAttribute("data-t")); });
