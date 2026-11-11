@@ -416,7 +416,7 @@
       (cs ? '<div class="sec"><span class="rot">Para lembrar</span>' + cs + "</div>" : "") +
       '<div class="grow"></div><button class="btn" id="mais">Praticar outra cena</button><button class="btn fantasma" id="ini">Voltar ao início</button>',
       bind: function (el) {
-        $("#mais", el).onclick = function () { go("praticar"); };
+        $("#mais", el).onclick = function () { go("cenas"); };
         $("#ini", el).onclick = function () { carregarPainel().then(function () { go("painel"); }, function () { go("painel"); }); };
       } };
   };
@@ -424,10 +424,10 @@
   V.resultado = function () {
     var p = S.painel || {}, a = p.aluno || {}, pr = p.progresso || {}, nv = a.Nivel || "";
     var obj = (perfil().objetivo) || "";
-    var linhas = [["Falar", pr.fala], ["Ouvir", pr.escuta], ["Ler", pr.leitura], ["Escrever", pr.escrita]].map(function (h) {
+    var linhas = [["Falar", pr.fala], ["Ouvir", pr.escuta], ["Ler", pr.leitura], ["Escrever", pr.escrita], ["Traduzir", pr.traducao]].map(function (h) {
       var v = Number(h[1]) || 0;
       return '<div><div class="l"><span>' + h[0] + "</span><span>" + (v ? v : "ainda sem medição") + '</span></div><div class="prog ' + (v < 60 ? "am" : "") + '"><i style="width:' + v + '%"></i></div></div>';
-    }).join("") + '<div><div class="l"><span>Traduzir</span><span>em breve</span></div><div class="prog"><i style="width:0"></i></div></div>';
+    }).join("") + "";
     var chips = (TRILHAS[obj] || ["Rotina", "Vocabulário", "Conversação"]).map(function (c) { return '<span class="chip">' + esc(c) + "</span>"; }).join("");
     return { html:
       '<span class="rot">Seu nível diagnosticado</span>' +
@@ -471,18 +471,18 @@
       } };
   };
 
-  V.praticar = function () {
+  V.cenas = function () {
     var l = CENAS.map(function (c) { return '<button class="op" data-c="' + c.id + '"><span>' + esc(c.titulo) + "<small>Você fala com " + esc(c.papel) + "</small></span><span>→</span></button>"; }).join("");
-    return { html: '<span class="rot">Prática por voz</span><h2>Escolha uma cena.</h2><p>A IA faz o papel do outro lado. Falou errado? Ela corrige sem parar a conversa.</p><div class="opcoes">' + l + "</div>",
-      bind: function (el) { [].forEach.call(el.querySelectorAll("[data-c]"), function (b) { b.onclick = function () { go("pratica", { cena: b.getAttribute("data-c") }); }; }); } };
+    return { aba: "praticar", html: '<button class="link voltar" id="vv">← Falar</button><span class="rot">Prática por voz</span><h2>Escolha uma cena.</h2><p>A IA faz o papel do outro lado. Falou errado? Ela corrige sem parar a conversa.</p><div class="opcoes">' + l + "</div>",
+      bind: function (el) { $("#vv", el).onclick = function () { go("habilidade", { h: "fala" }); }; [].forEach.call(el.querySelectorAll("[data-c]"), function (b) { b.onclick = function () { go("pratica", { cena: b.getAttribute("data-c") }); }; }); } };
   };
 
   V.progresso = function () {
     var p = S.painel || {}, pr = p.progresso || {};
-    var linhas = [["Falar", pr.fala], ["Ouvir", pr.escuta], ["Ler", pr.leitura], ["Escrever", pr.escrita]].map(function (h) {
+    var linhas = [["Falar", pr.fala], ["Ouvir", pr.escuta], ["Ler", pr.leitura], ["Escrever", pr.escrita], ["Traduzir", pr.traducao]].map(function (h) {
       var v = Number(h[1]) || 0;
       return '<div><div class="l"><span>' + h[0] + "</span><span>" + (v ? v : "sem medição") + '</span></div><div class="prog ' + (v < 60 ? "am" : "") + '"><i style="width:' + v + '%"></i></div></div>';
-    }).join("") + '<div><div class="l"><span>Traduzir</span><span>em breve</span></div><div class="prog"><i style="width:0"></i></div></div>';
+    }).join("") + "";
     var s = p.sessoes || [];
     return { html: '<span class="rot">Sua evolução</span><h2>Progresso.</h2><div class="hab">' + linhas + "</div>" +
       '<div class="cartao"><div class="linha2"><span class="rot">Fluência média</span><b style="font-size:24px">' + (p.fluencia || "—") + "</b></div><div class=\"linha2\"><span class=\"rot\">Sequência</span><b>" + (p.streak || 0) + ((p.streak || 0) === 1 ? " dia" : " dias") + "</b></div></div>" +
@@ -543,7 +543,7 @@
       }
       if (window.Nice && Nice.demoRotas[rota]) return Nice.demoRotas[rota](a, st);
       if (rota === "aluno.perfilSalvar") { st.obj = a.objetivo; return { ok: true }; }
-      if (rota === "aluno.painel") return { aluno: { Nome: "Ana", Nivel: st.nivel, Objetivo: st.obj, Idioma: "pt" }, progresso: { leitura: 0, escrita: 0, escuta: 0, fala: st.fala }, fluencia: st.fala, streak: st.sessoes.length ? 1 : 0, temaDia: "Viagens", amostra: ["boarding pass", "layover", "luggage", "delay"], sessoes: st.sessoes.slice(0, 5), iaAtiva: false, precisaNivelamento: !st.nivel };
+      if (rota === "aluno.painel") return { aluno: { Nome: "Ana", Nivel: st.nivel, Objetivo: st.obj, Idioma: "pt" }, progresso: Object.assign({ leitura: 0, escrita: 0, escuta: 0, fala: st.fala, traducao: 0 }, st.prog || {}), fluencia: st.fala, streak: st.sessoes.length ? 1 : 0, temaDia: "Viagens", amostra: ["boarding pass", "layover", "luggage", "delay"], sessoes: st.sessoes.slice(0, 5), iaAtiva: false, precisaNivelamento: !st.nivel };
       if (rota === "sessao.iniciar") { st.sess++; st.turn = 0; st.cafe = 0; st.sessoes.unshift({ Modulo: a.modulo, Inicio: new Date().toISOString() }); return { sessaoId: "demo" + st.sess, abertura: a.modulo === "nivelamento" ? "Hi! I'm Alex, your AI tutor. Why do you want to learn English?" : "", nivel: st.nivel }; }
       if (rota === "sessao.encerrar") return { ok: true };
       if (rota === "sessao.enviar") {
@@ -570,7 +570,7 @@
   /* ---------- API para as telas da equipe (equipe.js) e início ---------- */
   window.Nice = {
     S: S, V: V, api: api, go: go, esc: esc, toast: toast, falhou: falhou, $: $, pad: pad, falar: falar, pararFala: pararFala, NIVEIS: NIVEIS,
-    demoRotas: {},
+    demoRotas: {}, recarregarPainel: carregarPainel, rolarTopo: function () { tela.scrollTop = 0; },
     iniciar: function () {
       montarArea("aluno");
       var m = /[?&]demo(?:=(\w+))?/.exec(location.search);

@@ -8,6 +8,7 @@ Landing (visual V3) na raiz e app do aluno em `app/`. Site estático, pronto par
 - `app/`: o app (`index.html`, `app.css`).
   - `app.js`: login, roteamento por perfil e telas do aluno.
   - `voz.js`: voz natural (toca o áudio do Gemini, conversa ao vivo por WebSocket, gravador para transcrição).
+  - `atividades.js`: menu das 5 habilidades, as 14 atividades e a demonstração delas.
   - `equipe.js`: telas de Professor, Gestão e Sustentação.
 - `shared/`: motor de animação e estilos das telas da landing.
 - `config.js`: endereço do Apps Script (`API_URL`) e ID do cliente Google (`CLIENT_ID`).
@@ -28,6 +29,18 @@ Demonstração sem servidor: `app/?demo` (aluno), `app/?demo=professor`, `app/?d
 | Sustentação (SUPORTE) | Sustentação | Saúde (testes e erros), Chave e voz, Custos, Equipe |
 
 O dono do script entra como Gestão e também vê a Sustentação.
+
+## As 5 habilidades (Praticar)
+
+| Habilidade | Atividades |
+|---|---|
+| Ouvir | Ouvir e selecionar, ouvir e responder por escrito, ouvir e traduzir, ouvir e responder falando, ouvir e resumir em inglês |
+| Falar | Conversar com o tutor (ao vivo), descrever uma cena, frases com palavras novas, ler em voz alta (compara o que o app ouviu com o texto) |
+| Ler | Compreensão de texto, vocabulário novo (definição, sinônimo e exemplo) |
+| Escrever | Situações reais (e-mail, formulário, feedback, prestação de contas, notícia difícil), texto com lacunas |
+| Traduzir | Traduzir frases (português para inglês ou inglês para português), traduzir um texto e criar frases com as palavras novas |
+
+Como testar uma por uma: entre com a conta dona, troque a área para Aluno, abra **Praticar**, escolha a habilidade e a atividade. A nota entra em **Progresso**. Para testar sem servidor: `app/?demo`.
 
 ## Voz
 

@@ -3,8 +3,8 @@
   "use strict";
   var N = window.Nice, V = N.V, api = N.api, go = N.go, esc = N.esc, toast = N.toast, falhou = N.falhou, $ = N.$, S = N.S;
   var VZ = window.NiceVoz;
-  var HAB = [["fala", "Falar"], ["escuta", "Ouvir"], ["leitura", "Ler"], ["escrita", "Escrever"]];
-  var MOD = { nivelamento: "Teste de nível", fala: "Fala", escuta: "Escuta", leitura: "Leitura", escrita: "Escrita" };
+  var HAB = [["fala", "Falar"], ["escuta", "Ouvir"], ["leitura", "Ler"], ["escrita", "Escrever"], ["traducao", "Traduzir"]];
+  var MOD = { nivelamento: "Teste de nível", fala: "Fala", escuta: "Escuta", leitura: "Leitura", escrita: "Escrita", traducao: "Tradução" };
   var PERFIL_NOME = { ALUNO: "Aluno", PROFESSOR: "Professor", ADMIN: "Gestão", EDITOR: "Editor", SUPORTE: "Sustentação" };
 
   /* ---------- utilidades de tela ---------- */

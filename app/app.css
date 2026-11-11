@@ -230,3 +230,49 @@ button.chip:hover { background: var(--am); color: var(--preto); }
 #tela.live .msgs { padding-top: 4px; }
 #tela.live .comp .link { justify-self: center; padding: 0; font-size: 13px; }
 @media (max-height: 700px) { .orbe { width: 110px; height: 110px; } .orbe span { font-size: 13px; } }
+
+/* ---------- Fase A: habilidades e atividades ---------- */
+.hab-grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.hab-card { min-width: 0; text-align: left; background: var(--sup); border: 1px solid var(--linha); padding: 14px; display: grid; gap: 8px; align-content: start; min-height: 112px; }
+.hab-card:hover { border-color: var(--am); }
+.hab-card .rot.pts { color: var(--am); }
+.hab-card small { min-height: 2.5em; }
+.hab-card b { font-size: 22px; font-weight: 900; font-stretch: 75%; text-transform: uppercase; }
+.hab-card small { color: var(--suave); font-size: 13px; line-height: 1.25; }
+.hab-card .prog { align-self: end; }
+.ativ-it { display: grid; gap: 6px; }
+.ativ-it .dir { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 2px 2px 6px; }
+.op.esc { padding: 14px 16px; font-size: 17px; }
+.cartao.audio { justify-items: center; text-align: center; }
+.cartao.cena { text-align: center; }
+.cartao.cena p { color: var(--tinta); }
+.cartao .emo { font-size: 44px; line-height: 1.1; letter-spacing: 6px; }
+.cartao.texto { line-height: 1.6; }
+.cartao.texto.grande { font-size: 19px; }
+.cartao.lacunas { display: block; font-size: 18px; line-height: 2.4; color: var(--tinta); }
+.lac { width: 7.5em; background: var(--sup2); border: 0; border-bottom: 2px solid var(--am); color: var(--tinta); font: inherit; font-weight: 700; padding: 2px 6px; margin: 0 4px; text-align: center; }
+.lac:focus { outline: none; background: var(--preto); }
+.chip.usada { opacity: .35; }
+.vocab .palavra { font-size: 26px; font-weight: 900; font-stretch: 75%; color: var(--am); text-transform: none; }
+.vocab .ex { color: var(--tinta); font-style: italic; }
+.pergunta { color: var(--tinta); font-size: 17px; }
+.resp-c { gap: 10px; }
+.campo-w { display: flex; gap: 8px; align-items: stretch; }
+.campo-w .campo { flex: 1; }
+.campo-w .ic { align-self: flex-start; height: 48px; }
+.vant.dicas { gap: 4px; margin-top: 8px; }
+.vant.dicas li { font-size: 14px; font-weight: 500; color: var(--suave); }
+.nota-g { display: flex; align-items: baseline; gap: 10px; }
+.nota-g b { font-size: 96px; font-weight: 900; font-stretch: 62%; line-height: .85; }
+.nota-g span { font-family: var(--mono); font-size: 13px; color: var(--suave); text-transform: uppercase; letter-spacing: .08em; }
+.nota-g.ok b { color: var(--ok); }
+.nota-g.med b { color: var(--am); }
+.nota-g.baixa b { color: #ff8f8a; }
+.resumo { color: var(--tinta); font-size: 17px; }
+.sua { color: var(--suave); font-size: 14px; }
+.cartao.leitura { display: block; line-height: 1.9; font-size: 19px; }
+.pal-ok { color: var(--ok); }
+.pal-x { color: #ff8f8a; text-decoration: underline wavy #af1615; text-underline-offset: 4px; font-weight: 700; }
+.ouvido { font-size: 14px; }
+
+#ativ > small.rot { display: block; }
