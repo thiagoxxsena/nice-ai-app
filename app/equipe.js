@@ -250,7 +250,7 @@
   };
 
   /* =================== SUSTENTAÇÃO =================== */
-  var TESTES = [["texto", "Texto (conversa escrita)"], ["tts", "Voz natural (leitura)"], ["stt", "Transcrição de voz"], ["live", "Conversa ao vivo"]];
+  var TESTES = [["chave", "Chave e modelos (confere com o Google)"], ["texto", "Texto (conversa escrita)"], ["tts", "Voz natural (leitura)"], ["stt", "Transcrição de voz"], ["live", "Conversa ao vivo"]];
 
   /* Abre a conexão ao vivo no navegador com o token do teste e espera o tutor falar. */
   function testeLiveNavegador(r) {
@@ -258,14 +258,14 @@
       if (!VZ || !VZ.suportaLive()) { falha(new Error("Este navegador não suporta conversa ao vivo.")); return; }
       var saida = new VZ.Saida(), ws, fim = false, falou = "", audio = 0;
       saida.abrir();
-      var t = setTimeout(function () { fechar(); falha(new Error("Sem resposta em 15 s.")); }, 15000);
+      var t = setTimeout(function () { fechar(); falha(new Error("Sem resposta em 15 s. Confira o modelo ao vivo em Modelos e voz.")); }, 15000);
       function fechar() { fim = true; clearTimeout(t); try { ws.close(); } catch (e) {} }
       try { ws = new WebSocket(r.wsUrl + "?access_token=" + encodeURIComponent(r.token)); } catch (e) { falha(e); return; }
       ws.binaryType = "arraybuffer";
       ws.onopen = function () { ws.send(JSON.stringify({ setup: r.setup })); };
       ws.onmessage = function (ev) {
         var m; try { m = JSON.parse(typeof ev.data === "string" ? ev.data : new TextDecoder().decode(ev.data)); } catch (e) { return; }
-        if (m.setupComplete) { ws.send(JSON.stringify({ clientContent: { turns: [{ role: "user", parts: [{ text: "Hi!" }] }], turnComplete: true } })); return; }
+        if (m.setupComplete) { ws.send(JSON.stringify({ realtimeInput: { text: "Hi!" } })); return; }
         var sc = m.serverContent; if (!sc) return;
         if (sc.modelTurn && sc.modelTurn.parts) sc.modelTurn.parts.forEach(function (p) { if (p.inlineData && p.inlineData.data) { audio += saida.tocarPcm(p.inlineData.data, 24000); } });
         if (sc.outputTranscription && sc.outputTranscription.text) falou += sc.outputTranscription.text;

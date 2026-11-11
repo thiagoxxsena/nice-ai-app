@@ -204,7 +204,8 @@
     if (!this.ws || this.ws.readyState !== 1) return;
     if (!oculto) { this.fecharTurnos(); this.turnos.push({ papel: "aluno", texto: texto }); this.falasAluno++; if (this.o.onTexto) this.o.onTexto("aluno", texto, true); }
     this.saida.parar();
-    this.ws.send(JSON.stringify({ clientContent: { turns: [{ role: "user", parts: [{ text: texto }] }], turnComplete: true } }));
+    /* Modelos Live 3.x só aceitam texto em tempo real por realtimeInput (clientContent fica para o histórico inicial). */
+    this.ws.send(JSON.stringify({ realtimeInput: { text: texto } }));
   };
   Live.prototype.alternarMudo = function () {
     this.mudo = !this.mudo;
