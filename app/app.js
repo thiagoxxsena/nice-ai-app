@@ -106,7 +106,7 @@
   var AREAS = {
     aluno: { nome: "Aluno", abas: [["painel", "Início"], ["praticar", "Praticar"], ["progresso", "Progresso"], ["perfil", "Perfil"]] },
     professor: { nome: "Professor", abas: [["profInicio", "Início"], ["profAlunos", "Alunos"], ["profDuvidas", "Dúvidas"], ["profAgenda", "Agenda"]] },
-    gestao: { nome: "Gestão", abas: [["gesInicio", "Indicadores"], ["gesUsuarios", "Acessos"], ["gesAgenda", "Agenda"], ["gesPlanos", "Planos"]] },
+    gestao: { nome: "Gestão", abas: [["gesInicio", "Indicadores"], ["gesUsuarios", "Acessos"], ["gesAgenda", "Agenda"], ["gesPlanos", "Planos"], ["gesMateriais", "Materiais"]] },
     suporte: { nome: "Sustentação", abas: [["supInicio", "Saúde"], ["supIA", "Chave e voz"], ["supCusto", "Custos"], ["supEquipe", "Equipe"]] }
   };
   var appEl = document.querySelector(".app"), areaSel = document.getElementById("area"), sairTop = document.getElementById("sair-top");
@@ -160,7 +160,7 @@
     return api("bootstrap").then(function (b) {
       S.user = b.usuario;
       var l = areas(), salva = lsGet("nice_area_" + email(), "");
-      abrirArea(l.indexOf(salva) >= 0 ? salva : l[0]);
+      abrirArea(!S.demo && l.indexOf(salva) >= 0 ? salva : l[0]);
     }).catch(function (err) { S.user = null; montarArea("aluno"); go("login", { erro: err.message }); if (err.auth) { S.token = ""; try { sessionStorage.removeItem("nice_tk"); } catch (e) {} } });
   }
   function sair(silencioso) {

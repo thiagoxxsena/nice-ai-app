@@ -25,7 +25,7 @@ Demonstração sem servidor: `app/?demo` (aluno), `app/?demo=professor`, `app/?d
 |---|---|---|
 | Aluno | Início | Início, Praticar, Progresso, Perfil (com Dúvidas ao professor) |
 | Professor | Professor | Início (notas a validar, aulas), Alunos (ficha, nível, recado, conversas), Dúvidas, Agenda |
-| Gestão (ADMIN) | Gestão | Indicadores, Acessos (liberar e bloquear), Agenda da escola, Planos. Também abre Professor e Aluno |
+| Gestão (ADMIN) | Gestão | Indicadores, Acessos (liberar e bloquear), Agenda da escola, Planos, Materiais (importar, revisar e publicar). Também abre Professor e Aluno |
 | Sustentação (SUPORTE) | Sustentação | Saúde (testes e erros), Chave e voz, Custos, Equipe |
 
 O dono do script entra como Gestão e também vê a Sustentação.
@@ -41,6 +41,15 @@ O dono do script entra como Gestão e também vê a Sustentação.
 | Traduzir | Traduzir frases (português para inglês ou inglês para português), traduzir um texto e criar frases com as palavras novas |
 
 Como testar uma por uma: entre com a conta dona, troque a área para Aluno, abra **Praticar**, escolha a habilidade e a atividade. A nota entra em **Progresso**. Para testar sem servidor: `app/?demo`.
+
+## Materiais da escola (Gestão > Materiais)
+
+1. **Enviar:** escolha o livro e o nível (ou deixe a IA descobrir) e selecione os arquivos. PDF, PDF escaneado, imagens, Word, PowerPoint, texto, áudio e vídeo. PDFs são separados de 5 em 5 páginas no navegador. Várias imagens juntas viram um só material.
+2. **Processar:** a IA lê cada parte e extrai lições, vocabulário e trechos. Dá para fechar a página: uma rotina do servidor continua a cada 10 minutos (ative em Nice AI > Ativar backup semanal, na planilha).
+3. **Revisar:** abra o material, edite ou remova lições, palavras e trechos. Nada aparece para alunos antes de publicar.
+4. **Publicar:** libera tudo de uma vez. Os trechos entram na base de conhecimento e a IA passa a consultá-los no chat, na conversa ao vivo, nas atividades e no material de escuta. É possível despublicar.
+
+Requer a chave do Gemini cadastrada (Sustentação). Áudio e vídeo: até 14 MB por arquivo.
 
 ## Voz
 

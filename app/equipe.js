@@ -249,8 +249,235 @@
     } };
   };
 
+  /* =================== GESTÃO: MATERIAIS =================== */
+  var PDFLIB = "https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js";
+  var EXT = { pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation", txt: "text/plain", md: "text/markdown", mp3: "audio/mpeg", wav: "audio/wav", m4a: "audio/mp4", aac: "audio/aac", ogg: "audio/ogg", flac: "audio/flac", mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime", mpeg: "video/mpeg" };
+  var KIND = function (m) { return /^application\/pdf/.test(m) ? "pdf" : /^image\//.test(m) ? "img" : /wordprocessingml/.test(m) ? "docx" : /presentationml/.test(m) ? "pptx" : /^text\//.test(m) ? "txt" : /^audio\//.test(m) ? "audio" : /^video\//.test(m) ? "video" : ""; };
+  var MAX_PARTE = 14000000, PEDACO = 1500000, PAGS = 5;
+  var STATUS = { ENVIANDO: ["Enviando", "cinza"], NA_FILA: ["Na fila", "cinza"], PROCESSANDO: ["Processando", ""], REVISAO: ["Para revisar", ""], PUBLICADO: ["Publicado", "ok"], ERRO: ["Erro", "alerta"] };
+  var KINDNOME = { pdf: "PDF", img: "Imagens", docx: "Word", pptx: "PowerPoint", txt: "Texto", audio: "Áudio", video: "Vídeo" };
+  var HABNOME = { escuta: "Ouvir", fala: "Falar", leitura: "Ler", escrita: "Escrever", traducao: "Traduzir" };
+
+  function mimeDe(f) { var e = String(f.name.split(".").pop() || "").toLowerCase(); return EXT[e] || f.type || ""; }
+  function bytesB64(u8) { var s = "", t = 0x8000; for (var i = 0; i < u8.length; i += t) s += String.fromCharCode.apply(null, u8.subarray(i, i + t)); return btoa(s); }
+  function mb(n) { return (n / 1048576).toFixed(n > 10485760 ? 0 : 1) + " MB"; }
+  function lerArquivo(f) { return f.arrayBuffer().then(function (b) { return new Uint8Array(b); }); }
+  function carregarPdfLib() {
+    return new Promise(function (ok, no) {
+      if (window.PDFLib) { ok(window.PDFLib); return; }
+      var s = document.createElement("script"); s.src = PDFLIB; s.onload = function () { ok(window.PDFLib); }; s.onerror = function () { no(new Error("Não consegui carregar o leitor de PDF (internet).")); };
+      document.head.appendChild(s);
+    });
+  }
+
+  /* Cada arquivo vira uma lista de partes. PDF é dividido de 5 em 5 páginas (cada parte vai para a IA separadamente). */
+  function prepararPartes(arquivos, onStatus) {
+    var mime = mimeDe(arquivos[0]), k = KIND(mime);
+    if (!k) return Promise.reject(new Error("Tipo de arquivo não aceito: " + arquivos[0].name));
+    if (k === "img") {
+      var imgs = arquivos.slice().sort(function (a, b) { return a.name.localeCompare(b.name, undefined, { numeric: true }); });
+      return imgs.reduce(function (p, f, i) {
+        return p.then(function (l) { if (f.size > MAX_PARTE) throw new Error(f.name + " é grande demais (máximo " + mb(MAX_PARTE) + " por imagem)."); onStatus("Lendo imagens " + (i + 1) + "/" + imgs.length); return lerArquivo(f).then(function (u) { l.push({ bytes: u, mime: mimeDe(f), rotulo: "imagem " + (i + 1) }); return l; }); });
+      }, Promise.resolve([]));
+    }
+    var f = arquivos[0];
+    if ((k === "audio" || k === "video") && f.size > MAX_PARTE) return Promise.reject(new Error(f.name + ": áudio e vídeo aceitam até " + mb(MAX_PARTE) + " por enquanto. Divida em arquivos menores ou extraia só o áudio."));
+    if (k !== "pdf") {
+      if (f.size > MAX_PARTE) return Promise.reject(new Error(f.name + " é grande demais (máximo " + mb(MAX_PARTE) + ")."));
+      return lerArquivo(f).then(function (u) { return [{ bytes: u, mime: mime, rotulo: "arquivo inteiro" }]; });
+    }
+    return lerArquivo(f).then(function (u) {
+      return carregarPdfLib().then(function (L) {
+        return L.PDFDocument.load(u, { ignoreEncryption: true }).then(function (src) {
+          var n = src.getPageCount(), grupos = [], i;
+          for (i = 0; i < n; i += PAGS) grupos.push([i, Math.min(n, i + PAGS) - 1]);
+          return grupos.reduce(function (p, g, gi) {
+            return p.then(function (l) {
+              onStatus("Separando páginas " + (g[0] + 1) + " a " + (g[1] + 1) + " de " + n);
+              return L.PDFDocument.create().then(function (doc) {
+                var idx = []; for (var j = g[0]; j <= g[1]; j++) idx.push(j);
+                return doc.copyPages(src, idx).then(function (pgs) { pgs.forEach(function (pg) { doc.addPage(pg); }); return doc.save(); });
+              }).then(function (bytes) {
+                if (bytes.length > MAX_PARTE) throw new Error("As páginas " + (g[0] + 1) + " a " + (g[1] + 1) + " passam de " + mb(MAX_PARTE) + ". Reduza o tamanho das imagens do PDF.");
+                l.push({ bytes: bytes, mime: "application/pdf", rotulo: "pág. " + (g[0] + 1) + (g[1] > g[0] ? "-" + (g[1] + 1) : "") }); return l;
+              });
+            });
+          }, Promise.resolve([]));
+        });
+      }, function (e) {
+        if (f.size <= MAX_PARTE) return [{ bytes: u, mime: "application/pdf", rotulo: "arquivo inteiro" }];
+        throw e;
+      });
+    });
+  }
+
+  function limitar(itens, n, fn) {
+    var i = 0, ativos = 0, falha = null;
+    return new Promise(function (ok, no) {
+      function passo() {
+        if (falha) { if (!ativos) no(falha); return; }
+        if (i >= itens.length && !ativos) { ok(); return; }
+        while (ativos < n && i < itens.length) {
+          (function (k) { ativos++; fn(itens[k], k).then(function () { ativos--; passo(); }, function (e) { falha = falha || e; ativos--; passo(); }); })(i++);
+        }
+      }
+      passo();
+    });
+  }
+
+  /* Envia uma parte em pedaços de 1,5 MB (múltiplo de 3 bytes: o base64 dos pedaços se junta sem erro). */
+  function enviarParte(id, parte, idx) {
+    var subs = Math.max(1, Math.ceil(parte.bytes.length / PEDACO)), seq = [], k;
+    for (k = 0; k < subs; k++) seq.push(k);
+    return seq.reduce(function (p, s) { return p.then(function () { return api("imp.parte", { id: id, parte: idx, sub: s, subTotal: subs, mime: parte.mime, rotulo: parte.rotulo, dados: bytesB64(parte.bytes.subarray(s * PEDACO, (s + 1) * PEDACO)) }); }); }, Promise.resolve());
+  }
+
+  function processarLoop(id, onProg, ctl) {
+    return new Promise(function (ok) {
+      var ativos = 0, fim = false, ultimo = null;
+      function passo() {
+        if (ctl && ctl.parar) fim = true;
+        while (!fim && ativos < 3) {
+          ativos++;
+          api("imp.processar", { id: id }).then(function (p) { ultimo = p; onProg(p); if (!p.trabalhou || (p.pendentes === 0 && p.andamento === 0)) fim = true; }, function (e) { fim = true; falhou(e); }).then(function () { ativos--; if (fim && !ativos) ok(ultimo); else passo(); });
+        }
+        if (fim && !ativos) ok(ultimo);
+      }
+      passo();
+    });
+  }
+
+  /* envio completo de um material: partes, upload, finalizar e processamento */
+  function enviarMaterial(job, onStatus, onProg) {
+    return api("imp.iniciar", { nome: job.nome, mime: job.partes[0].mime, partes: job.partes.length, livro: job.livro, nivel: job.nivel, tamanho: job.tamanho }).then(function (r) {
+      var feitas = 0;
+      return limitar(job.partes, 2, function (p, i) { return enviarParte(r.id, p, i).then(function () { feitas++; onStatus("Enviando " + feitas + "/" + job.partes.length); }); })
+        .then(function () { onStatus("Finalizando envio"); return api("imp.finalizar", { id: r.id }); })
+        .then(function () { onStatus("Processando com a IA"); return processarLoop(r.id, function (p) { onStatus("Processando " + p.feitas + "/" + p.total); if (onProg) onProg(p); }); })
+        .then(function (p) { return { id: r.id, progresso: p }; });
+    });
+  }
+  N.imp = { prepararPartes: prepararPartes, enviarMaterial: enviarMaterial, mimeDe: mimeDe };
+
+  var timerMat = null;
+  function statusTag(s) { var x = STATUS[s] || [s, "cinza"]; return '<span class="tag' + (x[1] ? " " + x[1] : "") + '">' + x[0] + "</span>"; }
+  function barra(m) { var pct = m.Total ? Math.round(m.Feitas * 100 / m.Total) : 0; return '<div class="prog"><i style="width:' + pct + '%"></i></div>'; }
+
+  V.gesMateriais = function () {
+    return { classe: "eq", html: tela("Gestão", "Materiais.",
+      '<div class="cartao"><span class="rot">Importar material da escola</span>' +
+      '<p>Envie os books e as aulas. A IA lê, separa em lições, vocabulário e trechos, e você revisa antes de publicar. PDF, PDF escaneado, imagens, Word, PowerPoint, texto, áudio e vídeo.</p>' +
+      '<div class="form-g"><label>Livro<select class="campo" id="m-livro">' + opcoes([["", "Sem livro"], "Book 1", "Book 2", "Book 3", "Book 4", "Book 5", "Book 6"], "") + "</select></label>" +
+      '<label>Nível<select class="campo" id="m-nivel">' + opcoes([["auto", "A IA descobre"], "A1", "A2", "B1", "B2", "C1"], "auto") + "</select></label></div>" +
+      '<input class="campo" type="file" id="m-arq" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.docx,.pptx,.txt,.md,.mp3,.wav,.m4a,.aac,.ogg,.flac,.mp4,.webm,.mov,.mpeg" aria-label="Escolher arquivos">' +
+      '<small class="rot">Várias imagens juntas viram um só material (as páginas, em ordem de nome). Áudio e vídeo: até 14 MB por arquivo.</small><div id="m-fila"></div><button class="btn" id="m-env" disabled>Enviar e processar</button></div>' +
+      '<div id="m-lista">' + carregando() + "</div>"), bind: function (el) {
+      var arqs = [];
+      function lista() {
+        api("imp.lista").then(function (l) {
+          if (S.tela !== "gesMateriais") return;
+          $("#m-lista", el).innerHTML = l.length ? '<div class="cards">' + l.map(function (m) {
+            return '<button class="card-al" data-m="' + esc(m.ID) + '"><div class="linha2"><b>' + esc(m.Nome) + "</b>" + statusTag(m.Status) + "</div><small>" + esc((m.Livro ? m.Livro + " · " : "") + (KINDNOME[m.Kind] || m.Kind) + (m.Nivel !== "auto" ? " · " + m.Nivel : "")) + "</small>" +
+              (m.Total ? barra(m) + '<small class="rot">' + m.Feitas + " de " + m.Total + " partes</small>" : "") + '<small>' + m.Licoes + " lições · " + m.Vocab + " palavras · " + m.Trechos + " trechos</small>" + (m.Erro ? '<small class="err">' + esc(m.Erro) + "</small>" : "") + "</button>";
+          }).join("") + "</div>" : "<p>Nenhum material importado ainda.</p>";
+          [].forEach.call(el.querySelectorAll("[data-m]"), function (b) { b.onclick = function () { go("gesMaterial", { id: b.getAttribute("data-m") }); }; });
+          clearTimeout(timerMat);
+          if (l.some(function (m) { return ["ENVIANDO", "NA_FILA", "PROCESSANDO"].indexOf(m.Status) >= 0; })) timerMat = setTimeout(function () { if (S.tela === "gesMateriais") lista(); }, 8000);
+        }).catch(function (e) { $("#m-lista", el).innerHTML = '<div class="erro">' + esc(e.message) + "</div>"; });
+      }
+      $("#m-arq", el).onchange = function () {
+        arqs = [].slice.call(this.files || []);
+        var ruins = arqs.filter(function (f) { return !KIND(mimeDe(f)); });
+        $("#m-fila", el).innerHTML = arqs.map(function (f) { return '<div class="linha-it"><div><b>' + esc(f.name) + "</b><small>" + mb(f.size) + (KIND(mimeDe(f)) ? "" : " · tipo não aceito") + "</small></div></div>"; }).join("");
+        $("#m-env", el).disabled = !arqs.length || ruins.length > 0;
+        if (ruins.length) toast("Há arquivos de tipo não aceito. Tire-os da seleção.");
+      };
+      $("#m-env", el).onclick = function () {
+        var b = this, livro = $("#m-livro", el).value, nivel = $("#m-nivel", el).value, todasImg = arqs.every(function (f) { return KIND(mimeDe(f)) === "img"; });
+        var jobs = todasImg ? [arqs] : arqs.map(function (f) { return [f]; });
+        b.disabled = true; $("#m-arq", el).disabled = true;
+        var linhas = jobs.map(function (j) { return j.length > 1 ? j[0].name + " (+" + (j.length - 1) + " imagens)" : j[0].name; });
+        $("#m-fila", el).innerHTML = linhas.map(function (n, i) { return '<div class="linha-it"><div><b>' + esc(n) + '</b><small id="m-st' + i + '">Na espera</small></div></div>'; }).join("");
+        jobs.reduce(function (p, j, i) {
+          var st = function (t) { var e = $("#m-st" + i, el); if (e) e.textContent = t; };
+          return p.then(function () {
+            return prepararPartes(j, st).then(function (partes) {
+              return enviarMaterial({ nome: linhas[i].replace(/\.[A-Za-z0-9]+(?= \(\+|$)/, ""), livro: livro, nivel: nivel, partes: partes, tamanho: j.reduce(function (s, f) { return s + f.size; }, 0) }, st, null);
+            }).then(function (r) { var pr = r.progresso || {}; st(pr.status === "REVISAO" ? "Pronto para revisar" : pr.status === "ERRO" ? "Terminou com erro" : "Em processamento (continua sozinho)"); lista(); }, function (e) { st("Falhou: " + e.message); falhou(e); });
+          });
+        }, Promise.resolve()).then(function () { b.disabled = false; $("#m-arq", el).disabled = false; $("#m-arq", el).value = ""; arqs = []; toast("Envio terminado. Abra o material para revisar."); lista(); });
+      };
+      lista();
+    } };
+  };
+
+  function campoMat(rot, id, val, tipo, ops) {
+    if (ops) return "<label>" + rot + '<select class="campo" id="' + id + '">' + opcoes(ops, val) + "</select></label>";
+    if (tipo === "area") return "<label>" + rot + '<textarea class="campo" id="' + id + '" rows="6">' + esc(val) + "</textarea></label>";
+    return "<label>" + rot + '<input class="campo" id="' + id + '" value="' + esc(val) + '"></label>';
+  }
+
+  V.gesMaterial = function (p) {
+    return { classe: "eq", aba: "gesMateriais", html: '<button class="link voltar" id="volta">← Materiais</button>' + tela("Material", "Revisão."), bind: function (el) {
+      var aba = "licoes", mostrar = 40, ctl = { parar: false }, dados = null, editando = "";
+      $("#volta", el).onclick = function () { ctl.parar = true; go("gesMateriais"); };
+      function carregar() {
+        api("imp.detalhe", { id: p.id }).then(function (d) { if (S.tela === "gesMaterial") { dados = d; desenha(); } }).catch(function (e) { if (S.tela === "gesMaterial") $("#corpo", el).innerHTML = '<div class="erro">' + esc(e.message) + "</div>"; });
+      }
+      function acao(rota, extra, ok, conf) {
+        if (conf && !confirm(conf)) return;
+        api(rota, Object.assign({ id: p.id }, extra || {})).then(function (r) { var m = ok ? ok(r) : ""; if (m) toast(m); if (S.tela === "gesMaterial") carregar(); }).catch(falhou);
+      }
+      function item(tipo, x) {
+        var ed = editando === x.ID, topo, corpo;
+        if (tipo === "licao") { topo = "<b>" + esc(x.Titulo) + '</b><small>' + (HABNOME[x.Habilidade] || x.Habilidade) + " · " + x.Nivel + (x.Topico ? " · " + esc(x.Topico) : "") + (x.Fonte ? " · " + esc(x.Fonte) : "") + "</small>"; corpo = "<p>" + esc(x.Conteudo.slice(0, 220)) + (x.Conteudo.length > 220 ? "…" : "") + "</p>"; }
+        else if (tipo === "vocab") { topo = '<b class="palavra">' + esc(x.Palavra) + "</b><small>" + esc(x.Traducao) + " · " + x.Nivel + "</small>"; corpo = x.Exemplo ? "<p>“" + esc(x.Exemplo) + "”</p>" : ""; }
+        else { topo = "<b>" + esc(x.Titulo) + "</b><small>" + (x.Topico ? esc(x.Topico) + " · " : "") + x.Nivel + (x.Fonte ? " · " + esc(x.Fonte) : "") + (x.ComVetor ? "" : " · sem busca por significado") + "</small>"; corpo = "<p>" + esc(x.Texto) + "</p>"; }
+        var form = "";
+        if (ed) {
+          var niv = ["A1", "A2", "B1", "B2", "C1"], hab = Object.keys(HABNOME).map(function (k) { return [k, HABNOME[k]]; });
+          form = '<div class="form-g">' + (tipo === "licao" ? campoMat("Título", "e-Titulo", x.Titulo) + campoMat("Habilidade", "e-Habilidade", x.Habilidade, null, hab) + campoMat("Nível", "e-Nivel", x.Nivel, null, niv) + campoMat("Tópico", "e-Topico", x.Topico) + campoMat("Conteúdo", "e-Conteudo", x.Conteudo, "area")
+            : tipo === "vocab" ? campoMat("Palavra", "e-Palavra", x.Palavra) + campoMat("Tradução", "e-Traducao", x.Traducao) + campoMat("Exemplo", "e-Exemplo", x.Exemplo) + campoMat("Nível", "e-Nivel", x.Nivel, null, niv) + campoMat("Tópico", "e-Topico", x.Topico)
+            : campoMat("Título", "e-Titulo", x.Titulo) + campoMat("Tópico", "e-Topico", x.Topico) + campoMat("Texto", "e-Texto", x.Texto, "area")) + '</div><div class="linha2"><button class="btn mini" data-sv="' + x.ID + '">Salvar</button><button class="btn mini fantasma" data-cx="1">Cancelar</button></div>';
+        }
+        return '<div class="cartao item" data-i="' + esc(x.ID) + '"><div class="linha2"><div>' + topo + '</div><div class="acoes"><button class="pill" data-ed="' + esc(x.ID) + '">Editar</button><button class="pill" data-rm="' + esc(x.ID) + '">Remover</button></div></div>' + (ed ? form : corpo) + "</div>";
+      }
+      function desenha() {
+        var d = dados, m = d.material, pg = d.progresso, tipo = aba === "licoes" ? "licao" : aba === "vocab" ? "vocab" : "trecho", lista = d[aba === "licoes" ? "licoes" : aba];
+        var emAndamento = ["NA_FILA", "PROCESSANDO"].indexOf(m.Status) >= 0 && (pg.pendentes > 0 || pg.andamento > 0 || m.Status === "NA_FILA");
+        var botoes = (emAndamento ? '<button class="btn mini" id="b-proc">Continuar processamento</button>' : "") + (pg.erros ? '<button class="btn mini" id="b-rep">Tentar de novo</button>' : "") +
+          (m.Status === "REVISAO" || (m.Status === "PUBLICADO" && d.rascunhos) ? '<button class="btn mini" id="b-pub">Publicar tudo (' + d.rascunhos + ")</button>" : "") + (m.Status === "PUBLICADO" ? '<button class="btn mini fantasma" id="b-desp">Despublicar</button>' : '<button class="btn mini fantasma" id="b-desc">Descartar</button>');
+        $("#corpo", el).innerHTML =
+          '<div class="cartao"><div class="linha2"><b>' + esc(m.Nome) + "</b>" + statusTag(m.Status) + "</div><small>" + esc((m.Livro ? m.Livro + " · " : "") + (KINDNOME[m.Kind] || m.Kind) + (m.Nivel !== "auto" ? " · " + m.Nivel : " · nível pela IA")) + "</small>" +
+          (pg.total ? barra({ Total: pg.total, Feitas: pg.feitas }) + '<small class="rot">' + pg.feitas + " de " + pg.total + " partes" + (pg.erros ? " · " + pg.erros + " com erro" : "") + "</small>" : "") + (m.Resumo ? "<p>" + esc(m.Resumo) + "</p>" : "") + (m.Erro ? '<p class="err">' + esc(m.Erro) + "</p>" : "") + '<div class="acoes" style="flex-wrap:wrap">' + botoes + "</div></div>" +
+          (d.partes.some(function (x) { return x.Status === "ERRO"; }) ? '<div class="cartao"><span class="rot">Partes com erro</span>' + d.partes.filter(function (x) { return x.Status === "ERRO"; }).map(function (x) { return '<div class="linha-it"><div><b>' + esc(x.Rotulo) + '</b><small class="err">' + esc(x.Erro) + "</small></div></div>"; }).join("") + "</div>" : "") +
+          '<div class="acoes" style="flex-wrap:wrap"><button class="pill' + (aba === "licoes" ? " on" : "") + '" data-ab="licoes">Lições (' + d.totais.licoes + ')</button><button class="pill' + (aba === "vocab" ? " on" : "") + '" data-ab="vocab">Vocabulário (' + d.totais.vocab + ')</button><button class="pill' + (aba === "trechos" ? " on" : "") + '" data-ab="trechos">Trechos (' + d.totais.trechos + ")</button></div>" +
+          '<p class="rot">' + (aba === "trechos" ? "Os trechos alimentam a IA em todas as telas depois de publicados." : "Revise, edite ou remova. Nada aparece para os alunos antes de publicar.") + "</p>" +
+          (lista.length ? lista.slice(0, mostrar).map(function (x) { return item(tipo, x); }).join("") + (lista.length > mostrar ? '<button class="btn fantasma" id="mais">Mostrar mais</button>' : "") : "<p>Nada por aqui.</p>");
+        if ($("#b-proc", el)) $("#b-proc", el).onclick = function () { var b = this; b.disabled = true; b.textContent = "Processando…"; ctl.parar = false; processarLoop(p.id, function () {}, ctl).then(carregar); };
+        if ($("#b-rep", el)) $("#b-rep", el).onclick = function () { acao("imp.reprocessar", null, function () { return "Partes de volta para a fila."; }); };
+        if ($("#b-pub", el)) $("#b-pub", el).onclick = function () { acao("imp.publicar", null, function (r) { return r.itens + " itens publicados."; }, "Publicar para alunos e para a IA? Itens removidos não entram."); };
+        if ($("#b-desp", el)) $("#b-desp", el).onclick = function () { acao("imp.despublicar", null, function () { return "Material despublicado."; }, "Tirar este material do ar? Alunos e IA deixam de ver."); };
+        if ($("#b-desc", el)) $("#b-desc", el).onclick = function () { acao("imp.descartar", null, function () { go("gesMateriais"); return "Material descartado."; }, "Descartar este material e todos os rascunhos? Não dá para desfazer."); };
+        [].forEach.call(el.querySelectorAll("[data-ab]"), function (b) { b.onclick = function () { aba = b.getAttribute("data-ab"); mostrar = 40; editando = ""; desenha(); }; });
+        if ($("#mais", el)) $("#mais", el).onclick = function () { mostrar += 40; desenha(); };
+        [].forEach.call(el.querySelectorAll("[data-ed]"), function (b) { b.onclick = function () { editando = b.getAttribute("data-ed"); desenha(); }; });
+        [].forEach.call(el.querySelectorAll("[data-cx]"), function (b) { b.onclick = function () { editando = ""; desenha(); }; });
+        [].forEach.call(el.querySelectorAll("[data-rm]"), function (b) { b.onclick = function () { if (!confirm("Remover este item?")) return; api("imp.itemRemover", { tipo: tipo, ID: b.getAttribute("data-rm") }).then(function () { carregar(); }).catch(falhou); }; });
+        [].forEach.call(el.querySelectorAll("[data-sv]"), function (b) {
+          b.onclick = function () {
+            var campos = {}; [].forEach.call(el.querySelectorAll('[id^="e-"]'), function (x) { campos[x.id.slice(2)] = x.value; });
+            b.disabled = true;
+            api("imp.itemSalvar", { tipo: tipo, ID: b.getAttribute("data-sv"), campos: campos }).then(function () { editando = ""; toast("Item salvo."); carregar(); }).catch(function (e) { b.disabled = false; falhou(e); });
+          };
+        });
+      }
+      carregar();
+    } };
+  };
+
   /* =================== SUSTENTAÇÃO =================== */
-  var TESTES = [["chave", "Chave e modelos (confere com o Google)"], ["texto", "Texto (conversa escrita)"], ["tts", "Voz natural (leitura)"], ["stt", "Transcrição de voz"], ["live", "Conversa ao vivo"]];
+  var TESTES = [["chave", "Chave e modelos (confere com o Google)"], ["texto", "Texto (conversa escrita)"], ["tts", "Voz natural (leitura)"], ["stt", "Transcrição de voz"], ["emb", "Busca nos materiais (embeddings)"], ["live", "Conversa ao vivo"]];
 
   /* Abre a conexão ao vivo no navegador com o token do teste e espera o tutor falar. */
   function testeLiveNavegador(r) {
@@ -306,7 +533,7 @@
       carregarEm(el, "sup.painel", {}, function (d) {
         var c = d.chave;
         return '<div class="kpis">' + kpi("Chave do Gemini", c.ativa ? "Ativa" : "Ausente", c.ativa ? "termina em " + c.fim : "cadastre em Chave e voz", c.ativa ? "" : "alerta") +
-          kpi("Conversa ao vivo", d.modelos.liveAtiva ? "Ligada" : "Desligada", d.liveHoje + " hoje") + kpi("Sessões hoje", d.sessoesHoje) + kpi("Custo hoje", brl(d.custo.hojeBrl), usd(d.custo.hojeUsd)) + kpi("Custo 30 dias", brl(d.custo.mesBrl), usd(d.custo.mesUsd), "destaque") + kpi("Versão do servidor", d.versao) + "</div>" +
+          kpi("Conversa ao vivo", d.modelos.liveAtiva ? "Ligada" : "Desligada", d.liveHoje + " hoje") + kpi("Sessões hoje", d.sessoesHoje) + kpi("Base de conhecimento", d.kb.trechos + " trechos", d.kb.publicados + " de " + d.kb.materiais + " materiais publicados") + kpi("Custo hoje", brl(d.custo.hojeBrl), usd(d.custo.hojeUsd)) + kpi("Custo 30 dias", brl(d.custo.mesBrl), usd(d.custo.mesUsd), "destaque") + kpi("Versão do servidor", d.versao) + "</div>" +
           blocoTestes() +
           '<div class="cartao"><span class="rot">Erros recentes</span>' + (d.erros.length ? d.erros.map(function (e) { return '<div class="linha-it"><div><b>' + esc(e.rota) + "</b><small>" + dataBRLocal(e.quando) + (e.quem ? " · " + esc(e.quem) : "") + '</small><p class="err">' + esc(e.msg) + "</p></div></div>"; }).join("") : "<p>Nenhum erro registrado.</p>") + "</div>" +
           '<div class="cartao"><span class="rot">Usuários ativos por perfil</span><div class="kpis mini">' + Object.keys(d.usuarios).map(function (k) { return kpi(PERFIL_NOME[k] || k, d.usuarios[k]); }).join("") + "</div></div>";
@@ -332,11 +559,12 @@
           '<label>Texto (chat e correções)<input class="campo" id="c-IA_MODELO" list="l-texto" value="' + esc(cfg.IA_MODELO) + '"></label>' +
           '<label>Voz lida (TTS)<input class="campo" id="c-TTS_MODELO" list="l-tts" value="' + esc(cfg.TTS_MODELO) + '"></label>' +
           '<label>Conversa ao vivo<input class="campo" id="c-LIVE_MODELO" list="l-live" value="' + esc(cfg.LIVE_MODELO) + '"></label>' +
+          '<label>Busca nos materiais (embeddings)<input class="campo" id="c-EMB_MODELO" list="l-emb" value="' + esc(cfg.EMB_MODELO) + '"></label>' +
           '<label>Voz do tutor<span class="linha2"><select class="campo" id="c-voz">' + opcoes(d.vozes, cfg.VOZ_NOME) + '</select><button class="pill" id="v-p">Ouvir</button></span></label>' +
           '<label>Conversa ao vivo<select class="campo" id="c-VOZ_LIVE_ATIVA">' + opcoes([["1", "Ligada"], ["0", "Desligada (usa chat com voz)"]], cfg.VOZ_LIVE_ATIVA) + "</select></label>" +
           '<label>Conversas ao vivo por aluno/dia<input class="campo" id="c-VOZ_SESSOES_DIA" inputmode="numeric" value="' + esc(cfg.VOZ_SESSOES_DIA) + '"></label>' +
           '<label>Minutos máximos por conversa<input class="campo" id="c-VOZ_MIN_SESSAO" inputmode="numeric" value="' + esc(cfg.VOZ_MIN_SESSAO) + '"></label></div>' +
-          '<datalist id="l-texto"></datalist><datalist id="l-tts"></datalist><datalist id="l-live"></datalist><small id="m-info"></small>' +
+          '<datalist id="l-texto"></datalist><datalist id="l-tts"></datalist><datalist id="l-live"></datalist><datalist id="l-emb"></datalist><small id="m-info"></small>' +
           '<button class="btn" id="c-s">Salvar modelos e voz</button></div>';
         ligarTestes(el);
         if (p.testar) $("#t-all", el).click();
@@ -355,17 +583,18 @@
           var b = this; ocupado(b, true, "Buscando…");
           api("sup.modelos").then(function (m) {
             ocupado(b, false);
-            ["texto", "tts", "live"].forEach(function (k) { $("#l-" + k, el).innerHTML = m[k].map(function (x) { return '<option value="' + esc(x) + '">'; }).join(""); });
-            $("#m-info", el).textContent = "Disponíveis para esta chave: " + m.texto.length + " de texto, " + m.tts.length + " de voz lida e " + m.live.length + " ao vivo" + (m.live.length ? " (ex.: " + m.live.slice(-2).join(", ") + ")" : "") + ". Clique num campo para escolher.";
+            ["texto", "tts", "live", "emb"].forEach(function (k) { $("#l-" + k, el).innerHTML = (m[k] || []).map(function (x) { return '<option value="' + esc(x) + '">'; }).join(""); });
+            $("#m-info", el).textContent = "Disponíveis para esta chave: " + m.texto.length + " de texto, " + m.tts.length + " de voz lida e " + m.live.length + " ao vivo e " + (m.emb || []).length + " de busca" + (m.live.length ? " (ex.: " + m.live.slice(-2).join(", ") + ")" : "") + ". Clique num campo para escolher.";
             var avisos = [];
             if (m.tts.length && m.tts.indexOf($("#c-TTS_MODELO", el).value) < 0) avisos.push("o modelo de voz lida atual não está na lista");
             if (m.live.length && m.live.indexOf($("#c-LIVE_MODELO", el).value) < 0) avisos.push("o modelo ao vivo atual não está na lista");
+            if ((m.emb || []).length && m.emb.indexOf($("#c-EMB_MODELO", el).value) < 0) avisos.push("o modelo de busca atual não está na lista");
             if (avisos.length) toast("Atenção: " + avisos.join(" e ") + ".");
           }).catch(function (e) { ocupado(b, false); falhou(e); });
         };
         $("#c-s", el).onclick = function () {
           var b = this, v = { VOZ_NOME: $("#c-voz", el).value };
-          ["IA_MODELO", "TTS_MODELO", "LIVE_MODELO", "VOZ_LIVE_ATIVA", "VOZ_SESSOES_DIA", "VOZ_MIN_SESSAO"].forEach(function (k) { v[k] = $("#c-" + k, el).value.trim(); });
+          ["IA_MODELO", "TTS_MODELO", "LIVE_MODELO", "EMB_MODELO", "VOZ_LIVE_ATIVA", "VOZ_SESSOES_DIA", "VOZ_MIN_SESSAO"].forEach(function (k) { v[k] = $("#c-" + k, el).value.trim(); });
           ocupado(b, true);
           api("sup.configSalvar", { valores: v }).then(function () { ocupado(b, false); toast("Configuração salva. Rode os testes para conferir."); }).catch(function (e) { ocupado(b, false); falhou(e); });
         };
@@ -380,7 +609,7 @@
         r[1].forEach(function (x) { cfg[x.Chave] = x; });
         var t = d.total;
         $("#corpo", el).innerHTML = '<div class="kpis">' + kpi("Hoje", brl(d.custo.hojeBrl), usd(d.custo.hojeUsd)) + kpi("Últimos 30 dias", brl(d.custo.mesBrl), usd(d.custo.mesUsd), "destaque") +
-          kpi("Conversa ao vivo", Math.round(t.live_seg / 60) + " min", "30 dias") + kpi("Voz lida", Math.round(t.tts_seg / 60) + " min", "30 dias") + kpi("Texto", Math.round(t.texto_tokens / 1000) + " mil tokens", t.chamadas + " chamadas") + kpi("Transcrição", Math.round(t.stt_seg / 60) + " min") + "</div>" +
+          kpi("Conversa ao vivo", Math.round(t.live_seg / 60) + " min", "30 dias") + kpi("Voz lida", Math.round(t.tts_seg / 60) + " min", "30 dias") + kpi("Texto", Math.round(t.texto_tokens / 1000) + " mil tokens", t.chamadas + " chamadas") + kpi("Transcrição", Math.round(t.stt_seg / 60) + " min") + kpi("Busca nos materiais", Math.round((t.emb_tokens || 0) / 1000) + " mil tokens", "30 dias") + kpi("Importação", (t.imp_partes || 0) + " partes", "lidas pela IA") + "</div>" +
           '<div class="cartao"><span class="rot">Custo por dia (US$, 30 dias)</span><div class="barras" role="img" aria-label="Custo por dia">' + d.uso.map(function (x) { return '<div class="b" title="' + esc(x.dia.split("-").reverse().join("/")) + ": " + usd(x.custo) + '"><i style="height:' + Math.round(x.custo / max * 100) + '%"></i><small>' + esc(x.dia.slice(8, 10)) + "</small></div>"; }).join("") + "</div></div>" +
           '<div class="cartao"><span class="rot">Preços usados na estimativa</span><p>Confira a tabela de preços do Gemini e ajuste. O custo real fica no Google AI Studio (Billing).</p><div class="form-g">' +
           ["CUSTO_LIVE_MIN", "CUSTO_TTS_MIN", "CUSTO_STT_MIN", "CUSTO_TEXTO_1M", "CAMBIO_USD"].map(function (k) { var x = cfg[k] || {}; return "<label>" + esc(x.Rotulo || k) + '<input class="campo" id="c-' + k + '" inputmode="decimal" value="' + esc(x.Valor) + '"></label>'; }).join("") +
@@ -435,11 +664,11 @@
     ],
     planos: [{ ID: "p1", Nome: "Mensal", Valor: "149", Tipo: "mensal", Ativo: "1", Descricao: "Tutor de IA ilimitado e acompanhamento do professor." }, { ID: "p2", Nome: "Power Basics", Valor: "97", Tipo: "unico", Ativo: "1", Descricao: "Curso básico de 24 lições." }],
     chave: { ativa: false, fim: "", em: "", por: "" },
-    cfg: { IA_MODELO: "gemini-flash-latest", TTS_MODELO: "gemini-2.5-flash-preview-tts", LIVE_MODELO: "gemini-2.5-flash-native-audio-preview-09-2025", VOZ_NOME: "Kore", VOZ_LIVE_ATIVA: "1", VOZ_SESSOES_DIA: "12", VOZ_MIN_SESSAO: "10", CUSTO_TEXTO_1M: "1.00", CUSTO_TTS_MIN: "0.015", CUSTO_LIVE_MIN: "0.025", CUSTO_STT_MIN: "0.002", CAMBIO_USD: "5.50" }
+    cfg: { IA_MODELO: "gemini-flash-latest", TTS_MODELO: "gemini-3.8-flash-tts", LIVE_MODELO: "gemini-3.8-live", EMB_MODELO: "gemini-embedding-001", VOZ_NOME: "Kore", VOZ_LIVE_ATIVA: "1", VOZ_SESSOES_DIA: "12", VOZ_MIN_SESSAO: "10", CUSTO_TEXTO_1M: "1.00", CUSTO_TTS_MIN: "0.015", CUSTO_LIVE_MIN: "0.025", CUSTO_STT_MIN: "0.002", CAMBIO_USD: "5.50" }
   };
   function uso() {
     var out = [], i;
-    for (i = 29; i >= 0; i--) { var d = new Date(Date.now() - i * 86400000), s = Math.sin(i) * 0.5 + 1; out.push({ dia: d.getFullYear() + "-" + N.pad(d.getMonth() + 1) + "-" + N.pad(d.getDate()), live_seg: Math.round(1800 * s), tts_seg: Math.round(240 * s), stt_seg: Math.round(60 * s), texto_tokens: Math.round(90000 * s), chamadas: Math.round(140 * s) }); }
+    for (i = 29; i >= 0; i--) { var d = new Date(Date.now() - i * 86400000), s = Math.sin(i) * 0.5 + 1; out.push({ dia: d.getFullYear() + "-" + N.pad(d.getMonth() + 1) + "-" + N.pad(d.getDate()), live_seg: Math.round(1800 * s), tts_seg: Math.round(240 * s), stt_seg: Math.round(60 * s), texto_tokens: Math.round(90000 * s), chamadas: Math.round(140 * s), emb_tokens: Math.round(12000 * s), imp_partes: Math.round(6 * s) }); }
     out.forEach(function (x) { x.custo = Math.round((x.live_seg / 60 * 0.025 + x.tts_seg / 60 * 0.015 + x.stt_seg / 60 * 0.002 + x.texto_tokens / 1e6) * 10000) / 10000; });
     return out;
   }
@@ -463,12 +692,38 @@
   R["adm.usuarioSalvar"] = function (a) { if (a.Perfil === "SUPORTE") throw new Error("O perfil Sustentação é cadastrado pela própria equipe de Sustentação."); return { ok: true }; };
   R["adm.planos"] = function () { return D.planos; };
   R["adm.planoSalvar"] = function () { return { ok: true }; };
-  R["sup.painel"] = function () { var u = uso(), h = u[u.length - 1], tot = { texto_tokens: 0, tts_seg: 0, live_seg: 0, stt_seg: 0, chamadas: 0 }, m = 0; u.forEach(function (x) { for (var k in tot) tot[k] += x[k]; m += x.custo; }); return { versao: "3.0.0", chave: D.chave, modelos: { texto: D.cfg.IA_MODELO, tts: D.cfg.TTS_MODELO, live: D.cfg.LIVE_MODELO, voz: D.cfg.VOZ_NOME, liveAtiva: D.cfg.VOZ_LIVE_ATIVA === "1" }, vozes: ["Kore", "Puck", "Charon", "Aoede", "Leda", "Orus", "Zephyr", "Fenrir"], uso: u, total: tot, custo: { hojeUsd: h.custo, mesUsd: Math.round(m * 10000) / 10000, hojeBrl: Math.round(h.custo * 550) / 100, mesBrl: Math.round(m * 550) / 100, cambio: 5.5 }, erros: [{ quando: new Date(Date.now() - 7200000).toISOString(), rota: "voz.liveIniciar", quem: "bruno@exemplo.com", msg: "Limite de uso da IA atingido: Resource has been exhausted (exemplo)" }], usuarios: { ADMIN: 1, EDITOR: 0, PROFESSOR: 2, ALUNO: 37, SUPORTE: 1 }, sessoesHoje: 23, liveHoje: 14 }; };
+  R["sup.painel"] = function () { var u = uso(), h = u[u.length - 1], tot = { texto_tokens: 0, tts_seg: 0, live_seg: 0, stt_seg: 0, chamadas: 0, emb_tokens: 0, imp_partes: 0 }, m = 0; u.forEach(function (x) { for (var k in tot) tot[k] += x[k]; m += x.custo; }); return { versao: "3.0.0", chave: D.chave, modelos: { texto: D.cfg.IA_MODELO, tts: D.cfg.TTS_MODELO, live: D.cfg.LIVE_MODELO, voz: D.cfg.VOZ_NOME, liveAtiva: D.cfg.VOZ_LIVE_ATIVA === "1" }, vozes: ["Kore", "Puck", "Charon", "Aoede", "Leda", "Orus", "Zephyr", "Fenrir"], uso: u, total: tot, custo: { hojeUsd: h.custo, mesUsd: Math.round(m * 10000) / 10000, hojeBrl: Math.round(h.custo * 550) / 100, mesBrl: Math.round(m * 550) / 100, cambio: 5.5 }, erros: [{ quando: new Date(Date.now() - 7200000).toISOString(), rota: "voz.liveIniciar", quem: "bruno@exemplo.com", msg: "Limite de uso da IA atingido: Resource has been exhausted (exemplo)" }], usuarios: { ADMIN: 1, EDITOR: 0, PROFESSOR: 2, ALUNO: 37, SUPORTE: 1 }, sessoesHoje: 23, liveHoje: 14, kb: { materiais: 6, publicados: 4, trechos: 212 } }; };
   R["sup.config"] = function () { return Object.keys(D.cfg).map(function (k) { return { Chave: k, Valor: D.cfg[k], Rotulo: { CUSTO_LIVE_MIN: "US$ por minuto de conversa ao vivo", CUSTO_TTS_MIN: "US$ por minuto de voz lida", CUSTO_STT_MIN: "US$ por minuto de transcrição", CUSTO_TEXTO_1M: "US$ por 1 milhão de tokens de texto", CAMBIO_USD: "Câmbio R$ por US$" }[k] || k }; }); };
   R["sup.configSalvar"] = function (a) { for (var k in a.valores) D.cfg[k] = a.valores[k]; return { ok: true }; };
   R["sup.chave"] = function (a) { var k = String(a.chave || ""); D.chave = k ? { ativa: true, fim: k.slice(-4), em: new Date().toISOString(), por: "demo-suporte@nice.ai" } : { ativa: false, fim: "" }; return { ok: true, chave: D.chave }; };
   R["sup.testar"] = function (a) { return { tipo: a.tipo, ok: false, detalhe: "Na demonstração não há servidor. Com a chave cadastrada, este teste chama o Gemini de verdade.", ms: 0 }; };
-  R["sup.modelos"] = function () { return { texto: ["gemini-2.5-flash", "gemini-flash-latest"], tts: ["gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts"], live: ["gemini-2.5-flash-native-audio-preview-09-2025", "gemini-live-2.5-flash-preview"] }; };
+  R["sup.modelos"] = function () { return { texto: ["gemini-2.5-flash", "gemini-flash-latest"], tts: ["gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts"], live: ["gemini-3.8-live"], emb: ["gemini-embedding-001"] }; };
+  /* ---- demonstração: materiais ---- */
+  var DM = { mats: [
+    { ID: "MAT-D1", Nome: "Book 1 - Unit 1", Kind: "pdf", Livro: "Book 1", Nivel: "A2", Status: "PUBLICADO", Total: 12, Feitas: 12, Erro: "", Resumo: "Cumprimentos, apresentações e rotina diária.", Trechos: 34, Licoes: 11, Vocab: 52, Tamanho: 3400000, Quando: new Date(Date.now() - 5 * 86400000).toISOString() },
+    { ID: "MAT-D2", Nome: "Book 1 - Unit 2", Kind: "pdf", Livro: "Book 1", Nivel: "A2", Status: "REVISAO", Total: 10, Feitas: 10, Erro: "", Resumo: "Viagens, aeroporto e restaurante.", Trechos: 28, Licoes: 9, Vocab: 44, Tamanho: 2800000, Quando: new Date(Date.now() - 86400000).toISOString() }
+  ] };
+  N.dm = DM;
+  function dmAchar(id) { return DM.mats.filter(function (m) { return m.ID === id; })[0]; }
+  function dmProg(m) { return { id: m.ID, status: m.Status, total: m.Total, feitas: m.Feitas, pendentes: Math.max(0, m.Total - m.Feitas), andamento: 0, erros: 0, trechos: m.Trechos, licoes: m.Licoes, vocab: m.Vocab, erro: "" }; }
+  var R2 = N.demoRotas;
+  R2["imp.lista"] = function () { return DM.mats.slice().reverse(); };
+  R2["imp.iniciar"] = function (a) { var m = { ID: "MAT-D" + (DM.mats.length + 1), Nome: a.nome, Kind: a.mime === "application/pdf" ? "pdf" : "img", Livro: a.livro || "", Nivel: a.nivel, Status: "ENVIANDO", Total: a.partes, Feitas: 0, Erro: "", Resumo: "", Trechos: 0, Licoes: 0, Vocab: 0, Tamanho: a.tamanho || 0, Quando: new Date().toISOString() }; DM.mats.push(m); DM.envio = (DM.envio || []); return { id: m.ID }; };
+  R2["imp.parte"] = function (a) { DM.envio = DM.envio || []; DM.envio.push([a.id, a.parte, a.sub, a.subTotal, String(a.dados).length]); return { ok: true, completa: a.sub === a.subTotal - 1 }; };
+  R2["imp.finalizar"] = function (a) { var m = dmAchar(a.id); m.Status = "NA_FILA"; return dmProg(m); };
+  R2["imp.processar"] = function (a) { var m = dmAchar(a.id); if (["NA_FILA", "PROCESSANDO"].indexOf(m.Status) < 0) { var p0 = dmProg(m); p0.trabalhou = false; return p0; } m.Feitas++; m.Trechos += 3; m.Licoes += 1; m.Vocab += 4; m.Status = m.Feitas >= m.Total ? "REVISAO" : "PROCESSANDO"; var p = dmProg(m); p.trabalhou = true; return p; };
+  R2["imp.reprocessar"] = function (a) { return dmProg(dmAchar(a.id)); };
+  R2["imp.detalhe"] = function (a) {
+    var m = dmAchar(a.id); if (!m) throw new Error("Material não encontrado.");
+    var licoes = [{ ID: "l1", Titulo: "Check-in no aeroporto", Habilidade: "escuta", Nivel: "A2", Topico: "Viagens", Conteudo: "Agent: Passport, please. Passenger: Here you are. Agent: Window or aisle? Passenger: Window, please.", Ativo: m.Status === "PUBLICADO", Fonte: "pág. 6-10" }, { ID: "l2", Titulo: "Pedindo a conta", Habilidade: "fala", Nivel: "A2", Topico: "Restaurante", Conteudo: "Practice asking for the bill: Could we have the bill, please?", Ativo: m.Status === "PUBLICADO", Fonte: "pág. 11-15" }];
+    var vocab = [{ ID: "v1", Palavra: "boarding pass", Traducao: "cartão de embarque", Exemplo: "Show your boarding pass.", Nivel: "A2", Topico: "Viagens", Ativo: false }, { ID: "v2", Palavra: "gate", Traducao: "portão", Exemplo: "Go to gate twelve.", Nivel: "A2", Topico: "Viagens", Ativo: false }, { ID: "v3", Palavra: "bill", Traducao: "conta", Exemplo: "Can I have the bill?", Nivel: "A2", Topico: "Restaurante", Ativo: false }];
+    var trechos = [{ ID: "t1", Titulo: "At the airport", Texto: "At the airport you show your passport and boarding pass at the check-in desk, then you walk to the gate and wait for the boarding call.", Topico: "Viagens", Nivel: "A2", Status: "RASCUNHO", Fonte: "pág. 6-10", ComVetor: true }, { ID: "t2", Titulo: "Ordering food", Texto: "In a restaurant the waiter brings the menu, you order a starter and a main dish, and at the end you ask for the bill.", Topico: "Restaurante", Nivel: "A2", Status: "RASCUNHO", Fonte: "pág. 11-15", ComVetor: false }];
+    return { material: m, progresso: dmProg(m), rascunhos: m.Status === "REVISAO" ? 8 : 0, partes: [], licoes: licoes, vocab: vocab, trechos: trechos, totais: { licoes: licoes.length, vocab: vocab.length, trechos: trechos.length } };
+  };
+  R2["imp.itemSalvar"] = R2["imp.itemRemover"] = function () { return { ok: true }; };
+  R2["imp.publicar"] = function (a) { dmAchar(a.id).Status = "PUBLICADO"; return { ok: true, itens: 20 }; };
+  R2["imp.despublicar"] = function (a) { dmAchar(a.id).Status = "REVISAO"; return { ok: true, itens: 20 }; };
+  R2["imp.descartar"] = function (a) { DM.mats = DM.mats.filter(function (m) { return m.ID !== a.id; }); return { ok: true }; };
   R["sup.equipe"] = function () { return D.usuarios.filter(function (u) { return u.Perfil === "SUPORTE"; }); };
   R["sup.equipeSalvar"] = function (a) { if (!/@/.test(a.Email || "")) throw new Error("E-mail inválido."); var ex = D.usuarios.filter(function (u) { return u.Email === a.Email; })[0]; if (ex) ex.Ativo = a.Ativo; else D.usuarios.push({ Email: a.Email, Nome: a.Nome || a.Email, Perfil: "SUPORTE", Ativo: "1" }); return { ok: true }; };
 })();

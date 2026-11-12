@@ -276,3 +276,21 @@ button.chip:hover { background: var(--am); color: var(--preto); }
 .ouvido { font-size: 14px; }
 
 #ativ > small.rot { display: block; }
+
+/* ---------- Fase B: materiais ---------- */
+.tag.ok { background: var(--ok); color: var(--preto); }
+.cartao.item { gap: 8px; }
+.cartao.item .linha2 { align-items: flex-start; }
+.cartao.item p { color: var(--tinta); font-size: 14px; }
+.cartao.item b.palavra { font-size: 20px; font-weight: 900; font-stretch: 75%; color: var(--am); }
+.cartao.item small, .card-al small { display: block; color: var(--suave); font-size: 12px; }
+.card-al small.err, .cartao p.err { color: #ffb4b0; }
+.cartao.item textarea.campo { min-height: 120px; }
+#m-fila { display: grid; }
+.acoes { flex-wrap: wrap; }
+
+.corpo { grid-template-columns: minmax(0, 1fr); }
+.kpi { min-width: 0; }
+.barras .b small { display: block; width: 100%; overflow: hidden; text-align: center; }
+@media (max-width: 520px) { .barras .b:not(:nth-child(5n)) small { visibility: hidden; } }
+.cartao { grid-template-columns: minmax(0, 1fr); }
