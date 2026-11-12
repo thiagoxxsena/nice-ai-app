@@ -93,9 +93,14 @@
     return "en";
   }
   function oQueOuvir(it, i) { return it.tipo === "traduzir_frases" && it.direcao === "en-pt" ? (it.itens[i] || {}).q : ""; }
+  /* Toca a voz natural. O botão mostra "Carregando voz…" enquanto o servidor gera o áudio (a pré-carga costuma deixá-lo pronto antes do clique). */
   function tocar(texto, idioma, btn) {
-    S.voz = true; N.falar(texto, idioma || "en");
-    if (btn) { btn.textContent = "▶ Ouvir de novo"; }
+    S.voz = true;
+    var rot = btn ? btn.getAttribute("data-rot") || btn.textContent : "";
+    if (btn) { btn.setAttribute("data-rot", rot); btn.disabled = true; btn.textContent = "Carregando voz…"; }
+    N.falar(texto, idioma || "en", { timeout: 40000 }).then(function () {
+      if (btn) { btn.disabled = false; btn.textContent = /ouvir de novo|^▶ Ouvir$/i.test(rot) || btn.id === "play" ? "▶ Ouvir de novo" : rot; }
+    });
   }
 
   function blocoApoio(it) {
@@ -149,6 +154,11 @@
     var rodape = it.kind === "ler_alto" ? '<button class="btn" id="env" disabled>Enviar leitura</button>' : '<button class="btn" id="env"' + (it.kind === "escolha" ? " disabled" : "") + ">" + (it.kind === "lacunas" ? "Conferir" : it.kind === "escolha" ? "Responder" : "Enviar para correção") + "</button>";
     box.innerHTML = cab + corpo + rodape + (it.origem === "BANCO" ? '<small class="rot" style="text-align:center">Atividade de exemplo da escola</small>' : "");
     var env = $("#env", box);
+
+    /* pré-carga da voz: o áudio já vem enquanto o aluno lê a instrução */
+    if (it.audio) N.prefetchVoz(it.audio, "en");
+    else if (it.tipo === "traduzir_frases" && oQueOuvir(it, 0)) N.prefetchVoz(oQueOuvir(it, 0), "en");
+    else if (it.tipo === "ler_vocabulario" && it.palavras[0]) N.prefetchVoz(it.palavras[0].w, "en");
 
     /* áudio */
     if ($("#play", box)) $("#play", box).onclick = function () { tocar(it.audio, "en", this); };

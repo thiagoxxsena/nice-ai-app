@@ -55,26 +55,47 @@
     if (!window.speechSynthesis) return;
     try { speechSynthesis.cancel(); var u = new SpeechSynthesisUtterance(texto); u.lang = idioma === "pt" ? "pt-BR" : "en-US"; u.rate = 0.95; speechSynthesis.speak(u); } catch (e) {}
   }
-  /* Voz natural do Gemini (via servidor). Sem chave, sem rede ou na demonstração: voz do navegador. */
-  function falar(texto, idioma) {
-    if (!S.voz || !texto) return;
+  /* Busca o áudio no servidor. Guarda em memória e junta pedidos iguais (pré-carga e clique no mesmo texto esperam a mesma resposta). */
+  var vozPend = {};
+  function buscarVoz(texto, idioma) {
+    var k = (idioma === "pt" ? "pt" : "en") + "|" + texto;
+    if (cacheVoz[k]) return Promise.resolve(cacheVoz[k]);
+    if (vozPend[k]) return vozPend[k];
+    if (VZ) VZ.saidaTts.abrir();
+    vozPend[k] = api("voz.falar", { texto: texto, idioma: idioma === "pt" ? "pt" : "en" }).then(function (r) {
+      delete vozPend[k];
+      if (String(r.audio).length < 3000000) { cacheVoz[k] = r; ordemVoz.push(k); if (ordemVoz.length > 16) delete cacheVoz[ordemVoz.shift()]; }
+      return r;
+    }, function (e) { delete vozPend[k]; throw e; });
+    return vozPend[k];
+  }
+  /* Pré-carga: pede o áudio antes de o aluno clicar em Ouvir. Não toca nada e ignora falhas. */
+  function prefetchVoz(texto, idioma) {
+    if (S.demo || !S.vozNatural || !VZ || !texto) return;
+    buscarVoz(texto, idioma).catch(function () {});
+  }
+  /* Voz natural do Gemini (via servidor). Sem chave, sem rede ou na demonstração: voz do navegador.
+     Devolve uma promessa que termina quando a fala COMEÇA (true) ou quando foi cancelada ou caiu para a voz do navegador (false).
+     opc.timeout: quanto esperar o servidor antes de usar a voz do navegador (padrão 9 s no chat; as atividades esperam mais). */
+  function falar(texto, idioma, opc) {
+    if (!S.voz || !texto) return Promise.resolve(false);
     pararFala();
-    if (S.demo || !S.vozNatural || !VZ) { falarNavegador(texto, idioma); return; }
-    var k = (idioma || "en") + "|" + texto, meu = Date.now() + Math.random();
+    if (S.demo || !S.vozNatural || !VZ) { falarNavegador(texto, idioma); return Promise.resolve(false); }
+    var meu = Date.now() + Math.random(), limite = (opc && opc.timeout) || 9000;
     S.falaId = meu;
-    function tocar(r) { if (S.falaId !== meu || !S.voz) return; VZ.saidaTts.parar(); VZ.saidaTts.tocarPcm(r.audio, r.rate); }
-    if (cacheVoz[k]) { tocar(cacheVoz[k]); return; }
-    VZ.saidaTts.abrir();
-    var desistiu = false, t = setTimeout(function () { desistiu = true; if (S.falaId === meu) falarNavegador(texto, idioma); }, 9000);
-    api("voz.falar", { texto: texto, idioma: idioma === "pt" ? "pt" : "en" }).then(function (r) {
-      clearTimeout(t);
-      cacheVoz[k] = r; ordemVoz.push(k);
-      if (ordemVoz.length > 40) delete cacheVoz[ordemVoz.shift()];
-      if (!desistiu) tocar(r);
-    }).catch(function (err) {
-      clearTimeout(t);
-      if (/chave do Gemini|indisponível/.test(err.message)) S.vozNatural = false;
-      if (!desistiu && S.falaId === meu) falarNavegador(texto, idioma);
+    return new Promise(function (ok) {
+      var desistiu = false, t = setTimeout(function () { desistiu = true; if (S.falaId === meu) falarNavegador(texto, idioma); ok(false); }, limite);
+      buscarVoz(texto, idioma).then(function (r) {
+        clearTimeout(t);
+        if (desistiu) return;
+        if (S.falaId !== meu || !S.voz) { ok(false); return; }
+        VZ.falarPcm(r.audio, r.rate); ok(true);
+      }).catch(function (err) {
+        clearTimeout(t);
+        if (/chave do Gemini|indisponível/.test(err.message)) S.vozNatural = false;
+        if (!desistiu && S.falaId === meu) falarNavegador(texto, idioma);
+        ok(false);
+      });
     });
   }
   function pararFala() {
@@ -570,7 +591,7 @@
   /* ---------- API para as telas da equipe (equipe.js) e início ---------- */
   window.Nice = {
     S: S, V: V, api: api, go: go, esc: esc, toast: toast, falhou: falhou, $: $, pad: pad, falar: falar, pararFala: pararFala, NIVEIS: NIVEIS,
-    demoRotas: {}, recarregarPainel: carregarPainel, rolarTopo: function () { tela.scrollTop = 0; },
+    demoRotas: {}, prefetchVoz: prefetchVoz, recarregarPainel: carregarPainel, rolarTopo: function () { tela.scrollTop = 0; },
     iniciar: function () {
       montarArea("aluno");
       var m = /[?&]demo(?:=(\w+))?/.exec(location.search);

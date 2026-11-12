@@ -14,6 +14,16 @@
     return f;
   }
 
+  /* Tira o silêncio e o ruído baixo do começo e do fim da fala (limite de -42 dB) e deixa 15 ms antes e 90 ms depois. */
+  function aparar(f, rate) {
+    var lim = 0.008, n = f.length, a = 0, b = n, i;
+    for (i = 0; i < n; i++) if (Math.abs(f[i]) > lim) { a = i; break; }
+    for (i = n - 1; i >= a; i--) if (Math.abs(f[i]) > lim) { b = i + 1; break; }
+    if (b <= a) return f;
+    a = Math.max(0, a - Math.round(rate * 0.015)); b = Math.min(n, b + Math.round(rate * 0.09));
+    return f.subarray(a, b);
+  }
+
   /* ---------- Saída de áudio (fila sem buracos) ----------
      - O contexto de áudio roda em 24 kHz, a mesma taxa do Gemini. Assim o navegador não reamostra cada pedaço
        (isso criava um chiado agudo acima de 12 kHz, audível em alto-falantes e fones de desktop).
@@ -34,16 +44,15 @@
     if (this.ctx.state === "suspended") { try { this.ctx.resume(); } catch (e) {} }
     return this.ctx;
   };
-  Saida.prototype.tocarPcm = function (b64, rate) {
+  /* Núcleo: agenda um pedaço de áudio (números de -1 a 1). Toda reprodução passa por aqui. */
+  Saida.prototype.tocarFloat = function (f, rate, colchao) {
     var ctx = this.abrir();
-    if (!ctx) return 0;
-    var f = pcm16ParaFloat(b64ParaBytes(b64));
-    if (!f.length) return 0;
+    if (!ctx || !f || !f.length) return 0;
     var buf = ctx.createBuffer(1, f.length, rate || 24000);
     buf.getChannelData(0).set(f);
     var src = ctx.createBufferSource(), g = ctx.createGain(), self = this, agora = ctx.currentTime;
     var novo = this.fim <= agora + 0.005;          /* fila vazia: começo de fala (ou a rede atrasou) */
-    var ini = novo ? agora + 0.06 : this.fim;
+    var ini = novo ? agora + (colchao === undefined ? 0.06 : colchao) : this.fim;
     src.buffer = buf; src.connect(g); g.connect(this.ganho);
     if (novo) { g.gain.setValueAtTime(0, ini); g.gain.linearRampToValueAtTime(1, ini + 0.006); }
     src.start(ini);
@@ -55,6 +64,14 @@
       if (!self.fontes.length) { self.silencioAte = Date.now() + 350; if (self.aoParar) self.aoParar(); }
     };
     return buf.duration;
+  };
+  /* Pedaço de uma fala em andamento (conversa ao vivo). Quem usa isto DEVE chamar fecharFala() no fim do turno. */
+  Saida.prototype.tocarPcm = function (b64, rate) { return this.tocarFloat(pcm16ParaFloat(b64ParaBytes(b64)), rate); };
+  /* Fala inteira de uma vez (voz lida, atividades de ouvir, testes). Apara silêncio, entra e sai com rampa. NUNCA use tocarPcm para isto. */
+  Saida.prototype.tocarFala = function (b64, rate) {
+    var f = aparar(pcm16ParaFloat(b64ParaBytes(b64)), rate || 24000), d = this.tocarFloat(f, rate, 0.02);
+    this.fecharFala();
+    return d;
   };
   /* Fim de uma fala: rampa de saída no último pedaço (evita o estalo no corte). */
   Saida.prototype.fecharFala = function () {
@@ -298,5 +315,32 @@
     });
   };
 
-  window.NiceVoz = { Saida: Saida, saidaTts: saidaTts, Live: Live, Gravador: Gravador, suportaLive: function () { return !!(AC && window.WebSocket && navigator.mediaDevices && navigator.mediaDevices.getUserMedia); } };
+  /* Teste da conversa ao vivo (Sustentação): abre a conexão com o token, pede um "Hi!" e toca o que o tutor responde. */
+  function testarLive(r) {
+    return new Promise(function (ok, falha) {
+      if (!(AC && window.WebSocket)) { falha(new Error("Este navegador não suporta conversa ao vivo.")); return; }
+      var saida = new Saida(), ws, fim = false, falou = "", audio = 0, t0 = performance.now(), tp = {};
+      function marca(k) { if (tp[k] === undefined) tp[k] = Math.round(performance.now() - t0); }
+      saida.abrir();
+      var t = setTimeout(function () { fechar(); falha(new Error("Sem resposta em 15 s. Confira o modelo ao vivo em Modelos e voz.")); }, 15000);
+      function fechar() { fim = true; clearTimeout(t); try { ws.close(); } catch (e) {} }
+      try { ws = new WebSocket(r.wsUrl + "?access_token=" + encodeURIComponent(r.token)); } catch (e) { falha(e); return; }
+      ws.binaryType = "arraybuffer";
+      ws.onopen = function () { marca("ws"); ws.send(JSON.stringify({ setup: r.setup })); };
+      ws.onmessage = function (ev) {
+        var m; try { m = JSON.parse(typeof ev.data === "string" ? ev.data : new TextDecoder().decode(ev.data)); } catch (e) { return; }
+        if (m.setupComplete) { marca("setup"); ws.send(JSON.stringify({ realtimeInput: { text: "Hi!" } })); return; }
+        var sc = m.serverContent; if (!sc) return;
+        if (sc.modelTurn && sc.modelTurn.parts) sc.modelTurn.parts.forEach(function (p) { if (p.inlineData && p.inlineData.data) { marca("audio"); audio += saida.tocarPcm(p.inlineData.data, 24000); } });
+        if (sc.outputTranscription && sc.outputTranscription.text) falou += sc.outputTranscription.text;
+        if (sc.turnComplete) { saida.fecharFala(); fechar(); setTimeout(function () { ok({ audio: audio, texto: falou.trim(), tempos: tp }); }, 50); }
+      };
+      ws.onclose = function (ev) { if (!fim) { clearTimeout(t); falha(new Error("Conexão recusada" + (ev.reason ? ": " + ev.reason : " (código " + ev.code + ")."))); } };
+    });
+  }
+
+  /* Voz lida (uma fala inteira): para o que estiver tocando e toca esta, com as rampas certas. Devolve a duração em segundos. */
+  function falarPcm(b64, rate) { saidaTts.parar(); return saidaTts.tocarFala(b64, rate); }
+
+  window.NiceVoz = { falarPcm: falarPcm, testarLive: testarLive, aparar: aparar, Saida: Saida, saidaTts: saidaTts, Live: Live, Gravador: Gravador, suportaLive: function () { return !!(AC && window.WebSocket && navigator.mediaDevices && navigator.mediaDevices.getUserMedia); } };
 })();
